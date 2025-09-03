@@ -325,80 +325,44 @@ class UserTreeController extends Controller
     }
 
     /**
-     * Count members in a specific round (only 4 levels: 2+4+8+16=30)
+     * Count members in a specific round (ONLY 4 levels: 2+4+8+16=30)
      */
     private function countMembersInRound($userId, $round)
     {
-        // Count only direct children in the 4 levels (2+4+8+16=30 max)
-        // Level 1: 2 members
-        // Level 2: 4 members  
-        // Level 3: 8 members
-        // Level 4: 16 members
-        // Total: 30 members maximum
+        // Count ONLY the 4 levels (2+4+8+16=30 max)
+        // Level 5+ members are NOT counted in this tree owner's count
+        // They belong to their own separate trees
+        
+        return $this->countFourLevelsOnly($userId, $round);
+    }
+    
+    /**
+     * Count only 4 levels of downline members (2+4+8+16=30)
+     */
+    private function countFourLevelsOnly($userId, $round, $currentLevel = 1, $treeOwnerId = null)
+    {
+        if ($currentLevel > 4) {
+            return 0;
+        }
+        
+        // Set tree owner ID on first call
+        if ($treeOwnerId === null) {
+            $treeOwnerId = $userId;
+        }
         
         $count = 0;
         
-        // Level 1: Direct children of this user (regardless of tree ownership)
-        $level1Count = ReferralRelationship::where('upline_id', $userId)
+        // Get direct children of this user (including spillover slots)
+        $children = ReferralRelationship::where('upline_id', $userId)
             ->where('tree_round', $round)
-            ->where('is_spillover_slot', false)
-            ->count();
-        $count += min($level1Count, 2); // Max 2 at level 1
-        
-        // Level 2: Children of level 1 members
-        $level1Members = ReferralRelationship::where('upline_id', $userId)
-            ->where('tree_round', $round)
-            ->where('is_spillover_slot', false)
-            ->limit(2)
             ->get();
-            
-        foreach ($level1Members as $level1Member) {
-            $level2Count = ReferralRelationship::where('upline_id', $level1Member->user_id)
-                ->where('tree_round', $round)
-                ->where('is_spillover_slot', false)
-                ->count();
-            $count += min($level2Count, 2); // Max 2 per level 1 member
-        }
         
-        // Level 3: Children of level 2 members
-        foreach ($level1Members as $level1Member) {
-            $level2Members = ReferralRelationship::where('upline_id', $level1Member->user_id)
-                ->where('tree_round', $round)
-                ->where('is_spillover_slot', false)
-                ->limit(2)
-                ->get();
-                
-            foreach ($level2Members as $level2Member) {
-                $level3Count = ReferralRelationship::where('upline_id', $level2Member->user_id)
-                    ->where('tree_round', $round)
-                    ->where('is_spillover_slot', false)
-                    ->count();
-                $count += min($level3Count, 2); // Max 2 per level 2 member
-            }
-        }
+        $count += $children->count();
         
-        // Level 4: Children of level 3 members
-        foreach ($level1Members as $level1Member) {
-            $level2Members = ReferralRelationship::where('upline_id', $level1Member->user_id)
-                ->where('tree_round', $round)
-                ->where('is_spillover_slot', false)
-                ->limit(2)
-                ->get();
-                
-            foreach ($level2Members as $level2Member) {
-                $level3Members = ReferralRelationship::where('upline_id', $level2Member->user_id)
-                    ->where('tree_round', $round)
-                    ->where('is_spillover_slot', false)
-                    ->limit(2)
-                    ->get();
-                    
-                foreach ($level3Members as $level3Member) {
-                    $level4Count = ReferralRelationship::where('upline_id', $level3Member->user_id)
-                        ->where('tree_round', $round)
-                        ->where('is_spillover_slot', false)
-                        ->count();
-                    $count += min($level4Count, 2); // Max 2 per level 3 member
-                }
+        // Recursively count children of each child (only up to level 4)
+        if ($currentLevel < 4) {
+            foreach ($children as $child) {
+                $count += $this->countFourLevelsOnly($child->user_id, $round, $currentLevel + 1, $treeOwnerId);
             }
         }
         
@@ -410,24 +374,24 @@ class UserTreeController extends Controller
      */
     private function buildRoundTreeStructure(&$tree, $userId, $round)
     {
-        // Get all direct children of this user in the specific round
+        // Get all direct children of this user in the specific round (including spillover slots)
+        // Show all children to display complete tree structure
         $directChildren = ReferralRelationship::where('upline_id', $userId)
             ->where('tree_round', $round)
-            ->where('is_spillover_slot', false)
             ->with('user')
             ->orderBy('created_at', 'asc')
             ->get();
         
         // Build tree structure with proper level placement for this round
-        $this->buildRoundTreeWithLevels($tree, $directChildren, 1, $round);
+        $this->buildRoundTreeWithLevels($tree, $directChildren, 1, $round, $userId);
     }
     
     /**
-     * Build tree structure with proper level placement for a specific round (4 levels only)
+     * Build tree structure with proper level placement for a specific round (display only 4 levels)
      */
-    private function buildRoundTreeWithLevels(&$tree, $children, $level, $round, $visited = [])
+    private function buildRoundTreeWithLevels(&$tree, $children, $level, $round, $treeOwnerId, $visited = [])
     {
-        if ($level > 4) return; // Maximum 4 levels - MLM tree structure
+        if ($level > 4) return; // Display only 4 levels - MLM tree structure
         
         $levelKey = "level{$level}";
         
@@ -449,19 +413,19 @@ class UserTreeController extends Controller
                     'is_spillover' => $child->is_spillover_slot
                 ];
                 
-                // Only get children if we're not at level 4 (last level)
+                // Get children for display (only 4 levels shown)
                 // Level 4 members' children are NOT part of this tree owner's tree
                 if ($level < 4) {
-                    // Recursively get children of this child in the same round
+                    // Recursively get children of this child in the same round (including spillover slots)
+                    // Show all children regardless of tree owner to display complete tree
                     $grandChildren = ReferralRelationship::where('upline_id', $child->user_id)
                         ->where('tree_round', $round)
-                        ->where('is_spillover_slot', false)
                         ->with('user')
                         ->orderBy('created_at', 'asc')
                         ->get();
                     
                     if ($grandChildren->count() > 0) {
-                        $this->buildRoundTreeWithLevels($tree, $grandChildren, $level + 1, $round, $visited);
+                        $this->buildRoundTreeWithLevels($tree, $grandChildren, $level + 1, $round, $treeOwnerId, $visited);
                     }
                 }
             }

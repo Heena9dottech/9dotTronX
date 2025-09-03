@@ -124,7 +124,8 @@ class TreeController extends Controller
      */
     public function findBinaryTreePlacement(User $sponsor, User $newUser)
     {
-        // Find the tree owner for this sponsor
+        // Find the tree owner for this sponsor 
+        //JOhn
         $treeOwner = $this->findTreeOwner($sponsor);
         
         // Check if tree owner's current round tree will be full after adding this person (30 members)
