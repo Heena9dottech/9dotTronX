@@ -631,7 +631,8 @@
     <script>
         function viewUserTree(username) {
             // Navigate to the selected user's tree view
-            window.location.href = `/users/${username}/tree`;
+            window.open(`/users/${username}/tree`, '_blank');
+            // window.location.href = `/users/${username}/tree`;
         }
 
         // Add some interactive features

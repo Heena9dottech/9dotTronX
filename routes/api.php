@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ApiController;
 use App\Http\Controllers\ApiTreeLogicController;
+use App\Http\Controllers\ApiUserController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,3 +27,12 @@ Route::post('/create-user-with-level', [ApiController::class, 'createUserWithLev
 // API Routes for Tree Logic
 Route::get('/member-count/{username}', [ApiTreeLogicController::class, 'getMemberCountByLevels']);
 Route::get('/tree-structure/{username}', [ApiTreeLogicController::class, 'getTreeStructure']);
+
+// API Routes for User Operations
+Route::post('/sponsor-member-count', [ApiUserController::class, 'getSponsorMemberCount']);
+Route::post('/create-user-under-sponsor', [ApiUserController::class, 'createUserUnderSponsor']);
+
+Route::post('deleteuser', [ApiUserController::class, 'deleteuser']);
+
+
+// https://api.postman.com/collections/28320364-9bc33565-096e-4201-8d2b-4e4e7747be3d?access_key=PMAT-01K4ADQDSHD4H78FPCB0HYJ0BY
