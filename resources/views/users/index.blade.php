@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>All Users - MLM Tree</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -224,12 +225,17 @@
                                             <th>User</th>
                                             <th>Username</th>
                                             <th>Email</th>
+                                            <th>Current Level</th>
                                             <th>Joined</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         @foreach($users as $user)
+                                        @php
+                                        $userLevel = $user->treeEntry ? $user->treeEntry->level_number : 'No Level';
+                                        $userLevelPrice = $user->treeEntry ? number_format($user->treeEntry->slot_price) . ' TRX' : '';
+                                        @endphp
                                         <tr>
                                             <td>{{ $user->id }}</td>
                                             <td>
@@ -241,12 +247,26 @@
                                                 <strong>{{ $user->username }}</strong>
                                             </td>
                                             <td>{{ $user->email }}</td>
+                                            <td>
+                                                @if($user->treeEntry)
+                                                <span class="badge bg-success">Level {{ $userLevel }}</span>
+                                                <br><small class="text-muted">{{ $userLevelPrice }}</small>
+                                                @else
+                                                <span class="badge bg-secondary">No Level</span>
+                                                @endif
+                                            </td>
                                             <td>{{ $user->created_at->diffForHumans() }}</td>
                                             <td>
-                                                <a href="{{ route('users.tree', ['username' => $user->username]) }}" class="btn btn-sm btn-primary">
-                                                    <i class="fas fa-sitemap me-1"></i>
-                                                    View Tree
-                                                </a>
+                                                <div class="d-flex gap-2">
+                                                    <a href="{{ route('users.tree', ['username' => $user->username]) }}" class="btn btn-sm btn-primary">
+                                                        <i class="fas fa-sitemap me-1"></i>
+                                                        View Tree
+                                                    </a>
+                                                    <button type="button" class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#buyLevelModal{{ $user->id }}">
+                                                        <i class="fas fa-shopping-cart me-1"></i>
+                                                        Buy Level
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                         @endforeach
@@ -260,7 +280,109 @@
         </div>
     </div>
 
+    <!-- Buy Level Plan Modals -->
+    @foreach($users as $user)
+    <div class="modal fade" id="buyLevelModal{{ $user->id }}" tabindex="-1" aria-labelledby="buyLevelModalLabel{{ $user->id }}" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="buyLevelModalLabel{{ $user->id }}">
+                        <i class="fas fa-shopping-cart me-2"></i>
+                        Buy Level Plan for {{ $user->username }}
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="buyLevelForm{{ $user->id }}">
+                        @csrf
+                        <input type="hidden" name="user_id" value="{{ $user->id }}">
+                        <div class="mb-3">
+                            <label for="level_id{{ $user->id }}" class="form-label">Select Level Plan</label>
+                            <select class="form-select" id="level_id{{ $user->id }}" name="level_id" required>
+                                <option value="">Choose a level plan</option>
+                                @foreach($levelPlans as $plan)
+                                <option value="{{ $plan->id }}"
+                                    @if(($user->treeEntry && $user->treeEntry->level_id == $plan->id) || (!($user->treeEntry) && $loop->first)) selected @endif>
+                                    Level {{ $plan->level_number }} - {{ number_format($plan->price) }} TRX
+                                </option>
+                                @endforeach
+                            </select>
+
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Note:</strong> This will create or update the user's tree entry with the selected level plan.
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-warning buy-level-btn" data-user-id="{{ $user->id }}">
+                        <i class="fas fa-shopping-cart me-2"></i>
+                        Buy Level Plan
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endforeach
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Add event listeners for buy level buttons
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.buy-level-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const userId = this.getAttribute('data-user-id');
+                    buyLevelPlan(userId);
+                });
+            });
+        });
+
+        function buyLevelPlan(userId) {
+            const form = document.getElementById('buyLevelForm' + userId);
+            const formData = new FormData(form);
+
+            // Show loading state
+            const button = document.querySelector(`[data-user-id="${userId}"].buy-level-btn`);
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Processing...';
+            button.disabled = true;
+
+            fetch('{{ route("buy-level-plan") }}', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Show success message
+                        // alert('Level plan purchased successfully!');
+                        // Close modal
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('buyLevelModal' + userId));
+                        modal.hide();
+                        // Reload the page to show updated information
+                        // window.location.href = "http://127.0.0.1:8000/users/john/tree";
+                        location.reload();
+
+                    } else {
+                        alert('Error: ' + (data.message || 'Something went wrong'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error: Something went wrong');
+                })
+                .finally(() => {
+                    // Reset button state
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                });
+        }
+    </script>
 </body>
 
 </html>

@@ -269,8 +269,9 @@
                                     <h6><i class="fas fa-info-circle me-2"></i>Multi-Slot MLM Information</h6>
                                     <p><strong>Password:</strong> 123456 (auto-generated)</p>
                                     <p><strong>Email:</strong> username@mlm.com (auto-generated)</p>
-                                    <p><strong>Slot Level:</strong> Choose from 15 levels (200 TRX to 2M TRX)</p>
-                                    <p><strong>Eligibility:</strong> User must complete previous level to unlock next level</p>
+                                    <p><strong>Sponsor:</strong> Required - Select an existing user as sponsor</p>
+                                    <p><strong>Level Plan:</strong> User will buy level plan later from user list</p>
+                                    <p><strong>Process:</strong> Create user → Buy level plan → Join tree</p>
                                 </div>
                                 
                                 <form action="{{ route('add-user') }}" method="POST">
@@ -282,32 +283,20 @@
                                             User Information
                                         </h3>
                                         <div class="row">
-                                            <div class="col-md-4 mb-3">
+                                            <div class="col-md-6 mb-3">
                                                 <label for="username" class="form-label">Username *</label>
                                                 <input type="text" class="form-control" id="username" name="username" value="{{ old('username') }}" required placeholder="Enter username">
                                             </div>
-                                            <div class="col-md-4 mb-3">
-                                                <label for="sponsor_id" class="form-label">Sponsor</label>
+                                            <div class="col-md-6 mb-3">
+                                                <label for="sponsor_id" class="form-label">Sponsor *</label>
                                                 <select class="form-select" id="sponsor_id" name="sponsor_id">
-                                                    <option value="">Select a sponsor (optional for first user)</option>
+                                                    <option value="">Select a sponsor</option>
                                                     @foreach($users as $user)
                                                         <option value="{{ $user->id }}" {{ old('sponsor_id') == $user->id ? 'selected' : '' }}>
                                                             {{ $user->id }}-{{ $user->username }}
                                                         </option>
                                                     @endforeach
                                                 </select>
-                                            </div>
-                                            <div class="col-md-4 mb-3">
-                                                <label for="level_id" class="form-label">Slot Level *</label>
-                                                <select class="form-select" id="level_id" name="level_id" required>
-                                                    @foreach($plans as $key => $plan)
-                                                        <option value="{{ $plan->id }}" 
-                                                            {{ old('level_id', $plans[0]->id) == $plan->id ? 'selected' : '' }}>
-                                                            Level {{ $plan->level_number }} - {{ number_format($plan->price) }} TRX
-                                                        </option>
-                                                    @endforeach
-                                                </select>
-
                                             </div>
                                         </div>
                                     </div>

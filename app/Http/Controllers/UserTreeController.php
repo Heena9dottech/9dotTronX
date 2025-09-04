@@ -14,7 +14,9 @@ class UserTreeController extends Controller
             ->orderBy('id', 'asc')
             ->get();
         
-        return view('users.index', compact('users'));
+        $levelPlans = \App\Models\LevelPlan::active()->ordered()->limit(1)->get();
+        
+        return view('users.index', compact('users', 'levelPlans'));
     }
 
     /**

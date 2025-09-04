@@ -16,41 +16,148 @@ class TreeController extends Controller
     {
         $request->validate([
             'username' => 'required|unique:users,username',
-            'sponsor_id' => 'nullable|exists:users,id'
+            // 'sponsor_id' => 'required|exists:users,id'
         ]);
 
         DB::transaction(function () use ($request) {
-            // 1️⃣ Create the user
+            // 1️⃣ Create the user ONLY (no tree entry yet)
             $user = User::create([
                 'username' => $request->username,
                 'email' => $request->username . '@mlm.com', // auto-generate email
                 'password' => Hash::make('123456'),
-                'sponsor_id' => $request->sponsor_id
+                'sponsor_id' => $request->sponsor_id ?? null
             ]);
 
-            // 2️⃣ Check if sponsor is provided
-            if ($request->sponsor_id) {
-                $sponsor = User::find($request->sponsor_id);
-                $this->addUserToTree($sponsor, $user);
-            } else {
-                // Tree owner (no sponsor) - create as root
-                ReferralRelationship::create([
-                    'user_id' => $user->id,
-                    'user_username' => $user->username,
-                    'sponsor_id' => null,
-                    'sponsor_username' => null,
-                    'upline_id' => null,
-                    'upline_username' => null,
-                    'position' => null,
-                    'tree_owner_id' => $user->id,
-                    'tree_owner_username' => $user->username,
-                    'tree_round' => 1,
-                    'is_spillover_slot' => false,
+            Log::info("✅ USER CREATED: {$user->username} (ID: {$user->id}) with sponsor {$request->sponsor_id} - No tree entry created yet");
+        });
+
+        return redirect('add-user-form')->with('success', 'User created successfully! Now they can buy a level plan to join the tree.');
+    }
+
+    /**
+     * Buy level plan for existing user
+     */
+    public function buyLevelPlan(Request $request)
+    {
+        $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'level_id' => 'required|exists:level_plans,id'
+        ]);
+
+        DB::transaction(function () use ($request) {
+            // Get user and level plan details
+            $user = User::find($request->user_id);
+            $levelPlan = \App\Models\LevelPlan::find($request->level_id);
+            
+            // Check if user already has a tree entry
+            $existingEntry = ReferralRelationship::where('user_id', $user->id)->first();
+            
+            if ($existingEntry) {
+                // Update existing entry with new level plan
+                $existingEntry->update([
+                    'level_number' => $levelPlan->level_number,
+                    'slot_price' => $levelPlan->price,
+                    'level_id' => $levelPlan->id
                 ]);
+                
+                Log::info("✅ LEVEL PLAN UPDATED: {$user->username} (ID: {$user->id}) updated to Level {$levelPlan->level_number}");
+            } else {
+                // Create new tree entry for user
+                if ($user->sponsor_id) {
+                    $sponsor = User::find($user->sponsor_id);
+                    $this->addUserToTreeWithLevel($sponsor, $user, $levelPlan);
+                } else {
+                    // User without sponsor - create as root
+                    ReferralRelationship::create([
+                        'user_id' => $user->id,
+                        'user_username' => $user->username,
+                        'sponsor_id' => null,
+                        'sponsor_username' => null,
+                        'upline_id' => null,
+                        'upline_username' => null,
+                        'position' => null,
+                        'tree_owner_id' => $user->id,
+                        'tree_owner_username' => $user->username,
+                        'tree_round' => 1,
+                        'is_spillover_slot' => false,
+                        'level_number' => $levelPlan->level_number,
+                        'slot_price' => $levelPlan->price,
+                        'level_id' => $levelPlan->id
+                    ]);
+                    
+                    Log::info("✅ TREE ENTRY CREATED: {$user->username} (ID: {$user->id}) created as root with Level {$levelPlan->level_number}");
+                }
             }
         });
 
-        return redirect('add-user-form')->with('success', 'User added to binary MLM tree');
+        return response()->json([
+            'success' => true,
+            'message' => 'Level plan purchased successfully!'
+        ]);
+    }
+
+    /**
+     * Add user to tree with level plan information
+     */
+    public function addUserToTreeWithLevel(User $sponsor, User $newUser, $levelPlan)
+    {
+        // Log the start of adding user to tree
+        Log::info("🔄 ADDING USER WITH LEVEL: {$newUser->username} (ID: {$newUser->id}) sponsored by {$sponsor->username} (ID: {$sponsor->id}) with level {$levelPlan->level_number}");
+        
+        // Use DB transaction to ensure atomicity
+        DB::transaction(function () use ($sponsor, $newUser, $levelPlan) {
+            // Step 1: Determine tree owner
+            $treeOwner = $this->findTreeOwner($sponsor);
+            
+            // Step 2: Determine which round to add the new user to
+            $targetRound = $this->getCurrentActiveRound($treeOwner->id);
+            
+            // Step 3: Find first empty slot in sponsor's subtree (BFS: sponsor.left, sponsor.right, then children)
+            $placement = $this->findFirstEmptySlotInSponsorSubtree($sponsor->id, $treeOwner->id, $targetRound);
+            
+            // Step 4: Check count BEFORE insertion
+            $countBefore = $this->countTreeMembersInRound($treeOwner->id, $targetRound);
+            
+            // Debug log before insertion
+            Log::info("DEBUG: Before adding {$newUser->username}, {$treeOwner->username}'s tree has {$countBefore} regular members");
+            
+            // Step 5: Insert the new user entry with level plan information
+            $newUserEntry = [
+                'user_id' => $newUser->id,
+                'user_username' => $newUser->username,
+                'sponsor_id' => $sponsor->id,
+                'sponsor_username' => $sponsor->username,
+                'upline_id' => $placement['upline_id'],
+                'upline_username' => $placement['upline_username'],
+                'position' => $placement['position'],
+                'tree_owner_id' => $treeOwner->id,
+                'tree_owner_username' => $treeOwner->username,
+                'tree_round' => $targetRound,
+                'is_spillover_slot' => false,
+                'level_number' => $levelPlan->level_number,
+                'slot_price' => $levelPlan->price,
+                'level_id' => $levelPlan->id
+            ];
+            
+            ReferralRelationship::create($newUserEntry);
+            
+            // Log the successful creation of new user entry
+            Log::info("✅ USER ENTRY CREATED: {$newUser->username} (ID: {$newUser->id}) placed under {$placement['upline_username']} (ID: {$placement['upline_id']}) Position: {$placement['position']} in {$treeOwner->username}'s tree with Level {$levelPlan->level_number}");
+            
+            // Step 6: After insertion, check if we just reached 30 members
+            $countAfter = $this->countTreeMembersInRound($treeOwner->id, $targetRound);
+            
+            // Log the count after adding new user
+            Log::info("User count after adding {$newUser->username}: {$countAfter} regular members in {$treeOwner->username}'s tree");
+            
+            // Step 7: If we just reached 30 members, create owner's new tree entry
+            if ($countAfter == 30) {
+                Log::info("🎯 TREE COMPLETED: {$treeOwner->username}'s tree reached 30 members in round {$targetRound}! Creating new tree entry...");
+                $this->createNewTreeEntryForOwner($treeOwner);
+            } else {
+                Log::info("❌ TREE NOT COMPLETED: {$treeOwner->username}'s tree has {$countAfter} members in round {$targetRound} (need 30 for new tree entry)");
+            }
+        });
     }
 
     /**

@@ -22,6 +22,7 @@ Route::get('/add-user-form', function () {
 })->name('add-user-form');
 
 Route::post('/add-user', [TreeController::class, 'addUser'])->name('add-user');
+Route::post('/buy-level-plan', [TreeController::class, 'buyLevelPlan'])->name('buy-level-plan');
 
 // New routes for user tree display
 Route::get('/users', [UserTreeController::class, 'index'])->name('users.index');

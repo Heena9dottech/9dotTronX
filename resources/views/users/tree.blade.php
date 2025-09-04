@@ -422,7 +422,7 @@
                     <!-- Page Header -->
                     <div class="page-header">
                         <div class="row align-items-center">
-                            <div class="col-md-8">
+                            <div class="col-md-6">
                                 <h1 class="page-title">Tree View: {{ $user->username }}</h1>
                                 <p class="page-subtitle">
                                     Network structure and hierarchy | Round {{ $round }} | Members: {{ $tree['member_count'] }}/30 (4 levels only)
@@ -431,7 +431,13 @@
                                     @endif
                                 </p>
                             </div>
-                            <div class="col-md-4 text-end">
+                            <div class="col-md-6 text-end">
+
+                                <a href="http://127.0.0.1:8000/users" class="btn btn-light btn-lg">
+                                    <i class="fas fa-users me-1"></i>
+                                    All user
+                                </a>
+
                                 <a href="http://127.0.0.1:8000/users/john/tree" class="btn btn-light btn-lg">
                                     <i class="fas fa-sitemap me-1"></i>
                                     John Tree
