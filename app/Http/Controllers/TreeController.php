@@ -143,20 +143,6 @@ class TreeController extends Controller
             
             // Log the successful creation of new user entry
             Log::info("✅ USER ENTRY CREATED: {$newUser->username} (ID: {$newUser->id}) placed under {$placement['upline_username']} (ID: {$placement['upline_id']}) Position: {$placement['position']} in {$treeOwner->username}'s tree with Level {$levelPlan->level_number}");
-            
-            // Step 6: After insertion, check if we just reached 30 members
-            $countAfter = $this->countTreeMembersInRound($treeOwner->id, $targetRound);
-            
-            // Log the count after adding new user
-            Log::info("User count after adding {$newUser->username}: {$countAfter} regular members in {$treeOwner->username}'s tree");
-            
-            // Step 7: If we just reached 30 members, create owner's new tree entry
-            if ($countAfter == 30) {
-                Log::info("🎯 TREE COMPLETED: {$treeOwner->username}'s tree reached 30 members in round {$targetRound}! Creating new tree entry...");
-                $this->createNewTreeEntryForOwner($treeOwner);
-            } else {
-                Log::info("❌ TREE NOT COMPLETED: {$treeOwner->username}'s tree has {$countAfter} members in round {$targetRound} (need 30 for new tree entry)");
-            }
         });
     }
 
@@ -208,81 +194,9 @@ class TreeController extends Controller
             
             // Log the successful creation of new user entry
             Log::info("✅ USER ENTRY CREATED: {$newUser->username} (ID: {$newUser->id}) placed under {$placement['upline_username']} (ID: {$placement['upline_id']}) Position: {$placement['position']} in {$treeOwner->username}'s tree");
-            
-            // Step 6: After insertion, check if we just reached 30 members
-            $countAfter = $this->countTreeMembersInRound($treeOwner->id, $targetRound);
-            
-            // Log the count after adding new user
-            Log::info("User count after adding {$newUser->username}: {$countAfter} regular members in {$treeOwner->username}'s tree");
-            
-            // Step 7: If we just reached 30 members, create owner's new tree entry
-            if ($countAfter == 30) {
-                Log::info("🎯 TREE COMPLETED: {$treeOwner->username}'s tree reached 30 members in round {$targetRound}! Creating new tree entry...");
-                $this->createNewTreeEntryForOwner($treeOwner);
-            } else {
-                Log::info("❌ TREE NOT COMPLETED: {$treeOwner->username}'s tree has {$countAfter} members in round {$targetRound} (need 30 for new tree entry)");
-            }
         });
     }
 
-    /**
-     * Find proper binary tree placement for new user
-     * Implements: Left-to-right, top-to-bottom placement with 30-member tree spillover
-     */
-    public function findBinaryTreePlacement(User $sponsor, User $newUser)
-    {
-        // Find the tree owner for this sponsor 
-        //JOhn
-        $treeOwner = $this->findTreeOwner($sponsor);
-        
-        // Check if tree owner's current round tree will be full after adding this person (30 members)
-        $currentRoundMembers = $this->countTreeMembersInRound($treeOwner->id, 1);
-        $willBeFull = ($currentRoundMembers >= 29); // 29 + 1 new person = 30
-        
-        if ($willBeFull) {
-            // Tree will be full after adding this person (30th person)
-            // STEP 1: Place the new person (30th user) first in the tree owner's current round
-            $placement = $this->findFirstEmptySlotInTree($treeOwner->id, 1);
-            
-            // Create entry for new person in tree owner's tree
-            $newPersonEntry = [
-                'user_id' => $newUser->id,
-                'user_username' => $newUser->username,
-                'sponsor_id' => $sponsor->id,
-                'sponsor_username' => $sponsor->username,
-                'upline_id' => $placement['upline_id'],
-                'upline_username' => $placement['upline_username'],
-                'position' => $placement['position'],
-                'tree_owner_id' => $treeOwner->id,
-                'tree_owner_username' => $treeOwner->username,
-                'tree_round' => 1,
-                'is_spillover_slot' => false,
-            ];
-            
-            // STEP 2: After creating the 30th user, create tree owner's spillover slot
-            // This will find the NEXT available empty slot (not the same as 30th user)
-            $this->createSpilloverSlotAfterUser($treeOwner, $placement);
-            
-            return $newPersonEntry;
-        } else {
-            // Tree has space, find first empty slot in sponsor's tree
-            $placement = $this->findFirstEmptySlotInTree($treeOwner->id, 1);
-            
-            return [
-                'user_id' => $newUser->id,
-                'user_username' => $newUser->username,
-                'sponsor_id' => $sponsor->id,
-                'sponsor_username' => $sponsor->username,
-                'upline_id' => $placement['upline_id'],
-                'upline_username' => $placement['upline_username'],
-                'position' => $placement['position'],
-                'tree_owner_id' => $treeOwner->id,
-                'tree_owner_username' => $treeOwner->username,
-                'tree_round' => 1,
-                'is_spillover_slot' => false,
-            ];
-        }
-    }
     
     /**
      * Find the tree owner for a given user
@@ -306,17 +220,6 @@ class TreeController extends Controller
      */
     private function getCurrentActiveRound($treeOwnerId)
     {
-        // Check if tree owner has a spillover slot
-        $spilloverSlot = ReferralRelationship::where('user_id', $treeOwnerId)
-            ->where('is_spillover_slot', true)
-            ->first();
-            
-        if ($spilloverSlot) {
-            // If spillover slot exists, new users go to the same round as spillover slot
-            Log::info("DEBUG: Tree owner {$treeOwnerId} has spillover slot in round {$spilloverSlot->tree_round}");
-            return $spilloverSlot->tree_round;
-        }
-        
         // Get all rounds for this tree owner
         $rounds = ReferralRelationship::where('tree_owner_id', $treeOwnerId)
             ->select('tree_round')
@@ -329,19 +232,10 @@ class TreeController extends Controller
             return 1; // First round
         }
         
-        // Check each round to find the first one that's not full (less than 30 members)
-        foreach ($rounds as $round) {
-            $memberCount = $this->countTreeMembersInRound($treeOwnerId, $round);
-            if ($memberCount < 30) {
-                Log::info("DEBUG: Tree owner {$treeOwnerId} has space in round {$round} ({$memberCount} members)");
-                return $round; // This round has space
-            }
-        }
-        
-        // All existing rounds are full, create new round
-        $newRound = max($rounds) + 1;
-        Log::info("DEBUG: All rounds full for tree owner {$treeOwnerId}, creating new round {$newRound}");
-        return $newRound;
+        // Always use the latest round
+        $latestRound = max($rounds);
+        Log::info("DEBUG: Tree owner {$treeOwnerId} using round {$latestRound}");
+        return $latestRound;
     }
     
     /**
@@ -392,44 +286,6 @@ class TreeController extends Controller
             ->toArray();
     }
     
-    /**
-     * Create new tree entry for owner when their tree reaches 30 members
-     * Places owner in first available empty slot in their OWN tree
-     * This implements the exact requirement: "New tree entry for the owner who completed 30 members"
-     */
-    private function createNewTreeEntryForOwner(User $treeOwner)
-    {
-        // Find first available empty slot in the tree owner's OWN tree
-        $placement = $this->findFirstEmptySlotInTree($treeOwner->id, 1);
-        
-        if (!$placement) {
-            Log::error("❌ No empty slot found in {$treeOwner->username}'s tree for new tree entry.");
-            return;
-        }
-        
-        // Create new tree entry for the completed tree owner in their own tree
-        $newTreeEntry = [
-            'user_id' => $treeOwner->id,
-            'user_username' => $treeOwner->username,
-            'sponsor_id' => $treeOwner->sponsor_id, // Keep original sponsor
-            'sponsor_username' => $treeOwner->sponsor ? $treeOwner->sponsor->username : null,
-            'upline_id' => $placement['upline_id'],
-            'upline_username' => $placement['upline_username'],
-            'position' => $placement['position'],
-            'tree_owner_id' => $treeOwner->id, // Owner becomes their own tree owner for new round
-            'tree_owner_username' => $treeOwner->username,
-            'tree_round' => 2, // New round (2nd round)
-            'is_spillover_slot' => true, // Mark as new tree entry
-        ];
-        
-        ReferralRelationship::create($newTreeEntry);
-        
-        // Update tree_round_count for the tree owner (increment by 1)
-        $treeOwner->increment('tree_round_count');
-        
-        // Log the successful creation of new tree entry
-        Log::info("✅ NEW TREE ENTRY CREATED: {$treeOwner->username} (ID: {$treeOwner->id}) placed under {$placement['upline_username']} (ID: {$placement['upline_id']}) Position: {$placement['position']} in {$treeOwner->username}'s own tree, Round: 2, Tree Round Count: {$treeOwner->tree_round_count}");
-    }
 
     /**
      * Create owner's spillover slot after 30th user is inserted
