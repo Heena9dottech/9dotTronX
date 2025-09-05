@@ -232,6 +232,7 @@ class ApiUserController extends Controller
     private function findFirstEmptySlot($sponsorId, $treeOwnerId, $round)
     {
         $sponsor = User::find($sponsorId);
+        dd($sponsor);
         if (!$sponsor) {
             return [
                 'found' => false,
@@ -482,17 +483,19 @@ class ApiUserController extends Controller
 
                 // dd($needsNewPosition);
                 if ($needsNewPosition) {
-                    $newUser = User::create([
-                        'username' => $username,
-                        'email' => $username . '@mlm.com',
-                        'password' => Hash::make('123456'),
-                        'sponsor_id' => $sponsor->id
-                    ]);
+
                     // 31st person logic: Create sponsor entry first, then new user
                     // Step 1: Find first empty slot for sponsor
                     $emptySlot = $this->findFirstEmptySlot($sponsor->id, $treeOwner->id, 1);
                     dd($emptySlot);
                     if ($emptySlot['found']) {
+                        $newUser = User::create([
+                            'username' => $username,
+                            'email' => $username . '@mlm.com',
+                            'password' => Hash::make('123456'),
+                            'sponsor_id' => $sponsor->id
+                        ]);
+
                         $uplineUser = User::find($emptySlot['upline_id']);
 
                         // Step 2: Create sponsor's entry in first empty slot
@@ -505,6 +508,7 @@ class ApiUserController extends Controller
                         $this->createUserSlotEntry($sponsor->id, $levelPlan->id, $sponsorReferralId);
                         $this->createUserSlotEntry($newUser->id, $levelPlan->id, $newUserReferralId);
                     } else {
+                        dd('No empty slot found for sponsor placement');
                         throw new \Exception('No empty slot found for sponsor placement');
                     }
                 } else {
