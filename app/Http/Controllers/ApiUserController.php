@@ -232,7 +232,7 @@ class ApiUserController extends Controller
     private function findFirstEmptySlot($sponsorId, $treeOwnerId, $round)
     {
         $sponsor = User::find($sponsorId);
-        dd($sponsor);
+        // dd($sponsor);
         if (!$sponsor) {
             return [
                 'found' => false,
