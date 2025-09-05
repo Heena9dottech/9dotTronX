@@ -6,6 +6,7 @@ use App\Http\Controllers\ApiController;
 use App\Http\Controllers\ApiTreeLogicController;
 use App\Http\Controllers\ApiUserController;
 use App\Http\Controllers\ApiMLMUserController;
+use App\Http\Controllers\ApiBuySlotController;
 
 /*
 |--------------------------------------------------------------------------
@@ -37,5 +38,9 @@ Route::post('deleteuser', [ApiUserController::class, 'deleteuser']);
 
 // API MLM User Controller Routes - Based on Left/Right Slots
 Route::post('/create-new-user', [ApiMLMUserController::class, 'createNewUser']);
+
+// API Buy Slot Controller Routes
+Route::post('useradd', [ApiBuySlotController::class, 'useradd']);
+Route::post('buyslot', [ApiBuySlotController::class, 'buyslot']);
 
 // https://api.postman.com/collections/28320364-9bc33565-096e-4201-8d2b-4e4e7747be3d?access_key=PMAT-01K4ADQDSHD4H78FPCB0HYJ0BY
