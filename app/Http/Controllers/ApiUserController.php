@@ -22,6 +22,14 @@ class ApiUserController extends Controller
      */
     public function deleteuser(Request $request)
     {
+
+        DB::table('referral_relationships')->truncate();
+        DB::table('user_slots')->truncate();
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'User and related referrals deleted successfully.'
+        ]);
         $request->validate([
             'id' => 'required',
         ]);

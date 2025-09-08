@@ -519,7 +519,7 @@
                                     @if(isset($tree['level1'][$i]) && $tree['level1'][$i])
                                     <div class="user-box {{ $tree['level1'][$i]->is_spillover ? 'spillover' : 'clickable' }}"
                                     @if(!$tree['level1'][$i]->is_spillover) onclick="viewUserTree('{{ $tree['level1'][$i]->user->username }}')" @endif>
-                                    {{ $tree['level1'][$i]->user->username }}
+                                    {{ $tree['level1'][$i]->user->username }} - {{ $tree['level1'][$i]->user->id }}
                                     @if($tree['level1'][$i]->is_spillover)
                                     <br><small>Spillover</small>
                                     @endif
@@ -539,7 +539,7 @@
                                 @if(isset($tree['level2'][$i]) && $tree['level2'][$i])
                                 <div class="user-box {{ $tree['level2'][$i]->is_spillover ? 'spillover' : 'clickable' }}"
                                 @if(!$tree['level2'][$i]->is_spillover) onclick="viewUserTree('{{ $tree['level2'][$i]->user->username }}')" @endif>
-                                {{ $tree['level2'][$i]->user->username }}
+                                {{ $tree['level2'][$i]->user->username }} - {{ $tree['level2'][$i]->user->id }}
                                 @if($tree['level2'][$i]->is_spillover)
                                 <br><small>Spillover</small>
                                 @endif
@@ -559,7 +559,7 @@
                             @if(isset($tree['level3'][$i]) && $tree['level3'][$i])
                             <div class="user-box {{ $tree['level3'][$i]->is_spillover ? 'spillover' : 'clickable' }}"
                             @if(!$tree['level3'][$i]->is_spillover) onclick="viewUserTree('{{ $tree['level3'][$i]->user->username }}')" @endif>
-                            {{ $tree['level3'][$i]->user->username }}
+                            {{ $tree['level3'][$i]->user->username }} - {{ $tree['level3'][$i]->user->id }}
                             @if($tree['level3'][$i]->is_spillover)
                             <br><small>Spillover</small>
                             @endif
@@ -579,7 +579,7 @@
                         @if(isset($tree['level4'][$i]) && $tree['level4'][$i])
                         <div class="user-box {{ $tree['level4'][$i]->is_spillover ? 'spillover' : 'clickable' }}"
                         @if(!$tree['level4'][$i]->is_spillover) onclick="viewUserTree('{{ $tree['level4'][$i]->user->username }}')" @endif>
-                        {{ $tree['level4'][$i]->user->username }}
+                        {{ $tree['level4'][$i]->user->username }} - {{ $tree['level4'][$i]->user->id }}
                         @if($tree['level4'][$i]->is_spillover)
                         <br><small>Spillover</small>
                         @endif

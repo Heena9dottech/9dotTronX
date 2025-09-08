@@ -23,14 +23,15 @@ class DashboardController extends Controller
             ->get();
         
         // Get top sponsors (users with most referrals)
-        $topSponsors = User::select('users.*')
-            ->leftjoin('referral_relationships', 'users.id', '=', 'referral_relationships.sponsor_id')
-            ->where('users.username', '!=', 'admin')
-            ->groupBy('users.id')
-            ->orderByRaw('COUNT(referral_relationships.id) DESC')
-            ->take(5)
-            ->get();
+        // $topSponsors = User::select('users.*')
+        //     ->leftjoin('referral_relationships', 'users.id', '=', 'referral_relationships.sponsor_id')
+        //     ->where('users.username', '!=', 'admin')
+        //     ->groupBy('users.id')
+        //     ->orderByRaw('COUNT(referral_relationships.id) DESC')
+        //     ->take(5)
+        //     ->get();
         
+            $topSponsors = [];
         // Get MLM tree statistics
         $treeStats = $this->getMLMTreeStats();
         

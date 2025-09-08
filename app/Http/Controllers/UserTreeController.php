@@ -53,7 +53,10 @@ class UserTreeController extends Controller
         
         // Get the user's tree structure for specific round
         $tree = $this->buildTreeForRound($user->id, $round);
-        
+        // dump($tree['level2'][0]->user->id);
+        // dump($tree['level2'][0]->user->username);
+        // dd($tree['level2'][0]);
+        // dd($tree);
         // Get all available rounds for this user
         $availableRounds = $this->getAvailableRounds($user->id);
         

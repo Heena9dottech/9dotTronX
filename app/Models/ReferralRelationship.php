@@ -16,7 +16,17 @@ class ReferralRelationship extends Model
         'position',
         'tree_owner_id', 'tree_owner_username',
         'tree_round', 'is_spillover_slot',
-        'level_number', 'slot_price', 'level_id'
+        'level_number', 'slot_price', 'level_id',
+        'user_slots_id', 'main_upline_id'
+    ];
+
+    protected $casts = [
+        'tree_round' => 'integer',
+        'is_spillover_slot' => 'boolean',
+        'level_number' => 'integer',
+        'slot_price' => 'decimal:2',
+        'user_slots_id' => 'integer',
+        'main_upline_id' => 'integer'
     ];
 
     // Relationship to get the user details
@@ -47,5 +57,11 @@ class ReferralRelationship extends Model
     public function levelPlan()
     {
         return $this->belongsTo(LevelPlan::class, 'level_id');
+    }
+
+    // Relationship to get the user slot details
+    public function userSlot()
+    {
+        return $this->belongsTo(UserSlot::class, 'user_slots_id');
     }
 }

@@ -9,7 +9,25 @@ class User extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['username', 'email', 'password', 'sponsor_id', 'tree_round_count'];
+    protected $fillable = [
+        'name',
+        'username', 
+        'email', 
+        'password', 
+        'sponsor_id', 
+        'tree_round_count'
+    ];
+
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+        'tree_round_count' => 'integer'
+    ];
 
     // A user can have many referrals (people they sponsored)
     public function referrals()
@@ -17,16 +35,16 @@ class User extends Model
         return $this->hasMany(User::class, 'sponsor_id');
     }
 
-    // A user can have one tree entry (their position under upline)
-    public function treeEntry()
+    // A user can have many tree entries (multiple slots)
+    public function treeEntries()
     {
-        return $this->hasOne(ReferralRelationship::class, 'user_id');
+        return $this->hasMany(ReferralRelationship::class, 'user_id');
     }
 
-    // Upline (tree position)
-    public function upline()
+    // A user can have many user slots
+    public function userSlots()
     {
-        return $this->belongsTo(ReferralRelationship::class, 'upline_id');
+        return $this->hasMany(UserSlot::class, 'user_id');
     }
 
     // Sponsor (who recruited this user)
