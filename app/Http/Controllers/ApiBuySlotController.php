@@ -118,7 +118,7 @@ class ApiBuySlotController extends Controller
                         $this->addUserToOwnTree($user, $levelPlan, $userSlot->id);
                         Log::info("✅ MULTIPLE SLOT PURCHASED: User {$user->username} (ID: {$user->id}) bought additional slot in their own tree with level {$levelPlan->level_number}");
                     } else {
-                        // New user - place under their sponsor
+                        // New user - place under their sponsor's ACTIVE TREE (earliest non-full slot)
                         $this->addUserToTreeWithLevel($sponsor, $user, $levelPlan, $userSlot->id);
                         Log::info("✅ NEW USER SLOT PURCHASED: User {$user->username} (ID: {$user->id}) bought slot with level {$levelPlan->level_number} under sponsor {$sponsor->username} (ID: {$sponsor->id})");
                     }
@@ -180,7 +180,6 @@ class ApiBuySlotController extends Controller
             'level_id' => $levelPlan->id,
             'user_slots_id' => $userSlotId,
             'tree_owner_id' => $user->id, // First user becomes tree owner
-            'tree_owner_username' => $user->username,
             'main_upline_id' => null // First user has no main upline
         ];
 
@@ -279,7 +278,6 @@ class ApiBuySlotController extends Controller
             'level_id' => $levelPlan->id,
             'user_slots_id' => $userSlotId,
             'tree_owner_id' => $treeOwner['id'],
-            'tree_owner_username' => $treeOwner['username'],
             'main_upline_id' => $mainUplineId
         ];
 
@@ -316,7 +314,7 @@ class ApiBuySlotController extends Controller
         if ($treeOwner) {
             return [
                 'id' => $treeOwner->tree_owner_id,
-                'username' => $treeOwner->tree_owner_username
+                'username' => User::find($treeOwner->tree_owner_id)->username
             ];
         }
 
@@ -627,17 +625,17 @@ class ApiBuySlotController extends Controller
 
         // Use DB transaction to ensure atomicity
         DB::transaction(function () use ($sponsor, $newUser, $levelPlan, $userSlotId) {
-            // Step 1: Find first empty slot in sponsor's subtree (left-right priority)
-            $placement = $this->findFirstEmptySlotInSponsorSubtree($sponsor->id);
+            // Step 1: Find first empty slot in SPONSOR'S ACTIVE TREE (latest slot subtree)
+            $placement = $this->findFirstEmptySlotInSponsorActiveTree($sponsor->id);
 
-            // Step 2: Validate that slot is not already occupied (immutability check)
-            $this->validateSlotNotReplaced($placement['upline_id'], $placement['position'], $newUser->id);
+            // Step 2: Validate that slot is not already occupied WITHIN THIS TREE (immutability check)
+            $this->validateSlotNotReplaced($placement['upline_id'], $placement['position'], $newUser->id, $placement['upline_relationship_id'] ?? null);
 
             // Get the tree owner
             $treeOwner = $this->getTreeOwner($newUser->id);
 
-            // Get the main upline ID (the referral_relationships table primary ID of the upline)
-            $mainUplineId = $this->getMainUplineId($placement['upline_id']);
+            // Get the main upline ID within the ACTIVE TREE (referral_relationships primary ID for the chosen upline relationship)
+            $mainUplineId = $placement['upline_relationship_id'] ?? $this->getMainUplineId($placement['upline_id']);
 
             // Step 3: Insert the new user entry with level plan information and user_slots_id
             $newUserEntry = [
@@ -653,7 +651,6 @@ class ApiBuySlotController extends Controller
                 'level_id' => $levelPlan->id,
                 'user_slots_id' => $userSlotId,
                 'tree_owner_id' => $treeOwner['id'],
-                'tree_owner_username' => $treeOwner['username'],
                 'main_upline_id' => $mainUplineId
             ];
 
@@ -680,57 +677,170 @@ class ApiBuySlotController extends Controller
 
 
     /**
-     * Find first empty slot in sponsor's subtree using BFS
+     * Find first empty slot in sponsor's ACTIVE tree (latest referral relationship root) using tree-aware BFS
      */
-    private function findFirstEmptySlotInSponsorSubtree($sponsorId)
+    private function findFirstEmptySlotInSponsorActiveTree($sponsorId)
     {
-        // Step 1: Check sponsor's own slots first (left, then right)
         $sponsor = User::find($sponsorId);
         if (!$sponsor) {
             throw new \Exception("Sponsor not found: {$sponsorId}");
         }
 
-        // Check sponsor's left slot first
+        // Active root: latest referral_relationship for sponsor (their newest slot/tree root)
+        $root = ReferralRelationship::where('user_id', $sponsorId)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        // If sponsor has no relationship yet, use immediate L/R check under sponsor user id
+        if (!$root) {
+            if ($this->isSlotAvailable($sponsorId, 'L')) {
+                return [
+                    'upline_id' => $sponsorId,
+                    'upline_username' => $sponsor->username,
+                    'position' => 'L',
+                    'upline_relationship_id' => null
+                ];
+            }
+            if ($this->isSlotAvailable($sponsorId, 'R')) {
+                return [
+                    'upline_id' => $sponsorId,
+                    'upline_username' => $sponsor->username,
+                    'position' => 'R',
+                    'upline_relationship_id' => null
+                ];
+            }
+
+            // Fallback
+            return [
+                'upline_id' => $sponsorId,
+                'upline_username' => $sponsor->username,
+                'position' => 'L',
+                'upline_relationship_id' => null
+            ];
+        }
+
+        // Check root's immediate slots within this tree (by relationship id)
+        if ($this->isTreeSlotAvailable($root->id, 'L')) {
+            return [
+                'upline_id' => $root->user_id,
+                'upline_username' => $root->user_username,
+                'position' => 'L',
+                'upline_relationship_id' => $root->id
+            ];
+        }
+        if ($this->isTreeSlotAvailable($root->id, 'R')) {
+            return [
+                'upline_id' => $root->user_id,
+                'upline_username' => $root->user_username,
+                'position' => 'R',
+                'upline_relationship_id' => $root->id
+            ];
+        }
+
+        // Tree-aware BFS: traverse by main_upline_id chain inside this tree only
+        $queue = [$root->id]; // queue holds relationship IDs
+        $visited = [];
+
+        while (!empty($queue)) {
+            $currentRelId = array_shift($queue);
+            if (in_array($currentRelId, $visited)) {
+                continue;
+            }
+            $visited[] = $currentRelId;
+
+            // Check L then R availability under this relationship
+            if ($this->isTreeSlotAvailable($currentRelId, 'L')) {
+                $upline = ReferralRelationship::find($currentRelId);
+                return [
+                    'upline_id' => $upline->user_id,
+                    'upline_username' => $upline->user_username,
+                    'position' => 'L',
+                    'upline_relationship_id' => $currentRelId
+                ];
+            }
+            if ($this->isTreeSlotAvailable($currentRelId, 'R')) {
+                $upline = ReferralRelationship::find($currentRelId);
+                return [
+                    'upline_id' => $upline->user_id,
+                    'upline_username' => $upline->user_username,
+                    'position' => 'R',
+                    'upline_relationship_id' => $currentRelId
+                ];
+            }
+
+            // Enqueue children relationships (within this tree) in left-right order
+            $children = ReferralRelationship::where('main_upline_id', $currentRelId)
+                ->orderBy('position', 'asc')
+                ->get();
+
+            foreach ($children as $child) {
+                if (!in_array($child->id, $visited)) {
+                    $queue[] = $child->id;
+                }
+            }
+        }
+
+        // Active tree likely full (30 complete). Fallback to global left-right BFS under sponsor (legacy behavior)
+        return $this->findFirstEmptySlotInSponsorSubtreeLegacy($sponsorId);
+    }
+
+    /**
+     * Tree-aware slot availability: checks if a given relationship's L/R child exists
+     */
+    private function isTreeSlotAvailable($uplineRelationshipId, $position)
+    {
+        $existing = ReferralRelationship::where('main_upline_id', $uplineRelationshipId)
+            ->where('position', $position)
+            ->first();
+        return !$existing;
+    }
+
+    /**
+     * Legacy global BFS under sponsor by upline_id only (ignores main_upline_id tree constraint)
+     * Places user in first available left-right slot anywhere under sponsor
+     */
+    private function findFirstEmptySlotInSponsorSubtreeLegacy($sponsorId)
+    {
+        $sponsor = User::find($sponsorId);
+        if (!$sponsor) {
+            throw new \Exception("Sponsor not found: {$sponsorId}");
+        }
+
         if ($this->isSlotAvailable($sponsorId, 'L')) {
             return [
                 'upline_id' => $sponsorId,
                 'upline_username' => $sponsor->username,
-                'position' => 'L'
+                'position' => 'L',
+                'upline_relationship_id' => null
             ];
         }
-
-        // Check sponsor's right slot second
         if ($this->isSlotAvailable($sponsorId, 'R')) {
             return [
                 'upline_id' => $sponsorId,
                 'upline_username' => $sponsor->username,
-                'position' => 'R'
+                'position' => 'R',
+                'upline_relationship_id' => null
             ];
         }
 
-        // Step 2: If sponsor's slots are full, use BFS on sponsor's subtree
         $queue = [$sponsorId];
         $visited = [];
-
         while (!empty($queue)) {
             $currentId = array_shift($queue);
-
             if (in_array($currentId, $visited)) {
                 continue;
             }
             $visited[] = $currentId;
 
-            // Check if this user has available slots (left-right priority)
             $availableSlot = $this->findFirstAvailableSlotForUpline($currentId);
             if ($availableSlot) {
+                $availableSlot['upline_relationship_id'] = null; // legacy path
                 return $availableSlot;
             }
 
-            // Both slots are filled, add children to queue for next level
             $children = ReferralRelationship::where('upline_id', $currentId)
-                ->orderBy('position', 'asc') // Left first, then right
+                ->orderBy('position', 'asc')
                 ->get();
-
             foreach ($children as $child) {
                 if (!in_array($child->user_id, $visited)) {
                     $queue[] = $child->user_id;
@@ -738,11 +848,12 @@ class ApiBuySlotController extends Controller
             }
         }
 
-        // Fallback: put under sponsor (should not happen if sponsor has space)
+        // As a last resort, return sponsor left (will be blocked by validator if occupied)
         return [
             'upline_id' => $sponsorId,
             'upline_username' => $sponsor->username,
-            'position' => 'L'
+            'position' => 'L',
+            'upline_relationship_id' => null
         ];
     }
 
@@ -765,11 +876,19 @@ class ApiBuySlotController extends Controller
      * Validate that user is not trying to replace an existing slot
      * Slots are immutable once assigned
      */
-    private function validateSlotNotReplaced($uplineId, $position, $userId)
+    private function validateSlotNotReplaced($uplineId, $position, $userId, $uplineRelationshipId = null)
     {
-        $existingSlot = ReferralRelationship::where('upline_id', $uplineId)
-            ->where('position', $position)
-            ->first();
+        // When a tree context is provided, enforce immutability within that specific tree only
+        if ($uplineRelationshipId) {
+            $existingSlot = ReferralRelationship::where('main_upline_id', $uplineRelationshipId)
+                ->where('position', $position)
+                ->first();
+        } else {
+            // Fallback to global check by upline user id (legacy flows not tree-aware)
+            $existingSlot = ReferralRelationship::where('upline_id', $uplineId)
+                ->where('position', $position)
+                ->first();
+        }
 
         if ($existingSlot) {
             throw new \Exception("Slot is already occupied and cannot be replaced. Position {$position} under user ID {$uplineId} is permanently assigned to user {$existingSlot->user_username} (ID: {$existingSlot->user_id}). Slots are immutable once assigned.");

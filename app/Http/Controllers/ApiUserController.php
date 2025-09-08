@@ -582,7 +582,7 @@ class ApiUserController extends Controller
             'upline_username' => $uplineUser->username,
             'position' => $position,
             'tree_owner_id' => $treeOwner->id,
-            'tree_owner_username' => $treeOwner->username,
+            // 'tree_owner_username' removed
             'tree_round' => $round,
             'is_spillover_slot' => false,
             'level_number' => $levelPlan->level_number,
@@ -626,7 +626,7 @@ class ApiUserController extends Controller
             'upline_username' => $uplineUser->username,
             'position' => $position,
             'tree_owner_id' => $treeOwner->id,
-            'tree_owner_username' => $treeOwner->username,
+            // 'tree_owner_username' removed
             'tree_round' => $round,
             'is_spillover_slot' => false,
             'level_number' => $sponsorLevelPlan->level_number,
