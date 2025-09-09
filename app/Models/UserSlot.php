@@ -45,10 +45,10 @@ class UserSlot extends Model
     /**
      * Add a member to the tree structure at the specified level
      * 
-     * @param int $memberId The user ID to add
+     * @param string|null $memberUsername The username to add (null if not found)
      * @param int $level The level (1-4) where to add the member
      */
-    public function addTreeMember($memberId, $level)
+    public function addTreeMember($memberUsername, $level)
     {
         $treeMembers = $this->tree_member_ids ?? [];
         
@@ -58,9 +58,9 @@ class UserSlot extends Model
         }
         
         // Check if member already exists in this level
-        if (!in_array($memberId, $treeMembers["level_{$level}"])) {
+        if (!in_array($memberUsername, $treeMembers["level_{$level}"])) {
             // Add member to the level only if not already present
-            $treeMembers["level_{$level}"][] = $memberId;
+            $treeMembers["level_{$level}"][] = $memberUsername;
             
             // Update the model
             $this->tree_member_ids = $treeMembers;
@@ -74,26 +74,30 @@ class UserSlot extends Model
      * Add a member to the tree structure at the specified level
      * Excludes the user themselves from their own tree structure
      * 
-     * @param int $memberUserId The user ID to add
+     * @param string|null $memberUsername The username to add (null if not found)
      * @param int $level The level (1-4) where to add the member
      * @param int $currentUserId The user ID to exclude from their own tree
      */
-    public function addTreeMemberExcludingSelf($memberUserId, $level, $currentUserId)
+    public function addTreeMemberExcludingSelf($memberUsername, $level, $currentUserId)
     {
+        // Get current user's username for comparison
+        $currentUser = User::find($currentUserId);
+        $currentUsername = $currentUser ? $currentUser->username : null;
+        
         // Don't add the user to their own tree structure
-        if ($memberUserId == $currentUserId) {
+        if ($memberUsername == $currentUsername) {
             return $this;
         }
         
         // Use the main addTreeMember method which already checks for duplicates
-        return $this->addTreeMember($memberUserId, $level);
+        return $this->addTreeMember($memberUsername, $level);
     }
 
     /**
      * Get tree members for a specific level
      * 
      * @param int $level The level to get members from
-     * @return array Array of member IDs
+     * @return array Array of member usernames
      */
     public function getTreeMembersByLevel($level)
     {
@@ -104,7 +108,7 @@ class UserSlot extends Model
     /**
      * Get all tree members across all levels
      * 
-     * @return array Array of all member IDs
+     * @return array Array of all member usernames
      */
     public function getAllTreeMembers()
     {

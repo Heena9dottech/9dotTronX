@@ -20,17 +20,31 @@ class BuySlotTreeController extends Controller
     {
         // dd($request->all());
         try {
+            // Handle both user_id and username fields for backward compatibility
+            $userId = $request->user_id ?? $request->username;
+            $levelId = $request->level_id;
+
             // Validate the request
             $request->validate([
-                'username' => 'nullable|exists:users,username',
                 'level_id' => 'required|exists:level_plans,id'
             ]);
 
-            $username = $request->username;
-            $levelId = $request->level_id;
+            // Validate user exists (either by ID or username)
+            if (!$userId) {
+                throw new \Exception('User ID or username is required');
+            }
 
-            // Find the user by username and level plan
-            $user = User::where('username', $username)->first();
+            // Find the user - handle both user_id and username
+            if (is_numeric($userId)) {
+                $user = User::find($userId);
+            } else {
+                $user = User::where('username', $userId)->first();
+            }
+            
+            if (!$user) {
+                throw new \Exception('User not found');
+            }
+            
             $levelPlan = LevelPlan::find($levelId);
 
             // Get sponsor from user table
@@ -85,9 +99,9 @@ class BuySlotTreeController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => "Slot purchased successfully for user {$username}",
+                'message' => "Slot purchased successfully for user {$user->username}",
                 'data' => [
-                    'username' => $username,
+                    'username' => $user->username,
                     'user_id' => $user->id,
                     'level_id' => $levelId,
                     'sponsor_id' => $sponsor->id,
@@ -435,9 +449,13 @@ class BuySlotTreeController extends Controller
                     continue;
                 }
             }
+            // Get username for member, use null if not found
+            $memberUser = User::find($memberUserId);
+            $memberUsername = $memberUser ? $memberUser->username : null;
+            
             // Add member to this user's tree structure (excluding themselves)
-            $userSlot->addTreeMemberExcludingSelf($memberUserId, $level, $userId);
-            Log::info("✅ USER TREE MEMBER ADDED: User {$memberUserId} added to user {$userId}'s tree at level {$level} in slot {$userSlot->id}");
+            $userSlot->addTreeMemberExcludingSelf($memberUsername, $level, $userId);
+            Log::info("✅ USER TREE MEMBER ADDED: User {$memberUsername} (ID: {$memberUserId}) added to user {$userId}'s tree at level {$level} in slot {$userSlot->id}");
         }
     }
 
@@ -1041,17 +1059,22 @@ class BuySlotTreeController extends Controller
 
     /**
      * Display tree by user slot (round-based)
-     * Web route: GET /tree-display/{username}/{round}
+     * Web route: GET /tree-display/{id}/{round}
      * 
-     * @param string $username
+     * @param int $id
      * @param int $round
      * @return \Illuminate\View\View
      */
-    public function displayTree($username, $round = 1)
+    public function displayTree($id, $round = 1)
     {
         try {
-            // Find the user
-            $user = User::where('username', $username)->first();
+            // Find the user - handle both user_id and username for backward compatibility
+            if (is_numeric($id)) {
+                $user = User::find($id);
+            } else {
+                $user = User::where('username', $id)->first();
+            }
+            
             if (!$user) {
                 return view('errors.404')->with('message', 'User not found');
             }
@@ -1063,7 +1086,7 @@ class BuySlotTreeController extends Controller
                 ->get();
 
             if ($userSlots->isEmpty()) {
-                return view('errors.404')->with('message', 'No slots found for user ' . $username);
+                return view('errors.404')->with('message', 'No slots found for user ' . $user->username);
             }
 
             // Get available rounds (slot prices)
@@ -1273,15 +1296,21 @@ class BuySlotTreeController extends Controller
 
     /**
      * Get tree statistics
-     * API endpoint: GET /api/tree-stats/{username}
+     * API endpoint: GET /api/tree-stats/{user_id}
      * 
-     * @param string $username
+     * @param int $user_id
      * @return \Illuminate\Http\JsonResponse
      */
-    public function getTreeStats($username)
+    public function getTreeStats($user_id)
     {
         try {
-            $user = User::where('username', $username)->first();
+            // Handle both user_id and username for backward compatibility
+            if (is_numeric($user_id)) {
+                $user = User::find($user_id);
+            } else {
+                $user = User::where('username', $user_id)->first();
+            }
+            
             if (!$user) {
                 return response()->json([
                     'success' => false,
@@ -1320,7 +1349,7 @@ class BuySlotTreeController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => "Tree stats retrieved for {$username}",
+                'message' => "Tree stats retrieved for {$user->username}",
                 'data' => $stats
             ], 200);
         } catch (\Exception $e) {
