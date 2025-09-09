@@ -244,7 +244,7 @@
                                     <i class="fas fa-user-plus me-1 text-primary"></i>
                                     Buy slot
                                 </h1>
-                                <a href="{{ route('dashboard') }}" >
+                                <a href="http://127.0.0.1:8000/tree-display/john" >
                                     <i class="fas fa-sitemap me-1"></i>
                                     View tree
                                 </a>

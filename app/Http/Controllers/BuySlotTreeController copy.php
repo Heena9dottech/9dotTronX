@@ -41,7 +41,13 @@ class BuySlotTreeController extends Controller
                     'user_id' => $user->id,
                     'username' => $user->username, // Add username for easy understanding
                     'level_plans_id' => $levelPlan->id,
-                    'referral_relationship_id' => null
+                    'referral_relationship_id' => null,
+                    'tree_member_ids' => [
+                        'level_1' => [],
+                        'level_2' => [],
+                        'level_3' => [],
+                        'level_4' => []
+                    ]
                 ]);
 
                 Log::info("✅ USER SLOT CREATED: User {$user->username} (ID: {$user->id}) slot created with ID {$userSlot->id} and referral_relationship_id as null");
@@ -62,7 +68,7 @@ class BuySlotTreeController extends Controller
                         $this->addUserToOwnTree($user, $levelPlan, $userSlot->id);
                         Log::info("✅ MULTIPLE SLOT PURCHASED: User {$user->username} (ID: {$user->id}) bought additional slot in their own tree with level {$levelPlan->level_number}");
                     } else {
-                        // New user - place under their sponsor's earliest non-full matching tree
+                        // New user - place under their sponsor's ACTIVE TREE (earliest non-full slot)
                         $this->addUserToTreeWithLevel($sponsor, $user, $levelPlan, $userSlot->id);
                         Log::info("✅ NEW USER SLOT PURCHASED: User {$user->username} (ID: {$user->id}) bought slot with level {$levelPlan->level_number} under sponsor {$sponsor->username} (ID: {$sponsor->id})");
                     }
@@ -192,6 +198,94 @@ class BuySlotTreeController extends Controller
     }
 
     /**
+     * Rebuild the tree members for a specific root (main_upline_id root relationship id)
+     * This enforces per-level caps (2,4,8,16) and stores only up to those caps in user_slots.tree_member_ids
+     * The root is the referral_relationship with id = $rootRelationshipId. Its user_slots_id points to the owning slot to update
+     */
+    private function rebuildTreeMembersForRoot(int $rootRelationshipId): void
+    {
+        $root = ReferralRelationship::find($rootRelationshipId);
+        if (!$root) {
+            return;
+        }
+
+        $slot = UserSlot::find($root->user_slots_id);
+        if (!$slot) {
+            return;
+        }
+
+        // Level-wise traversal constrained to this tree: main_upline_id is fixed to root id,
+        // and breadth expands by upline_id user ids
+        $level = 1;
+        $maxPerLevel = [1 => 2, 2 => 4, 3 => 8, 4 => 16];
+        $result = [
+            'level_1' => [],
+            'level_2' => [],
+            'level_3' => [],
+            'level_4' => []
+        ];
+
+        // Start from the root owner's user id
+        $currentUplineUserIds = [$root->user_id];
+        while ($level <= 4 && !empty($currentUplineUserIds)) {
+            $nextUplineUserIds = [];
+
+            $members = ReferralRelationship::where('main_upline_id', $rootRelationshipId)
+                ->whereIn('upline_id', $currentUplineUserIds)
+                ->orderBy('upline_id')
+                ->orderBy('position', 'asc')
+                ->get(['id', 'user_id']);
+
+            foreach ($members as $m) {
+                if (count($result['level_' . $level]) < $maxPerLevel[$level]) {
+                    $result['level_' . $level][] = (int)$m->user_id;
+                }
+                $nextUplineUserIds[] = $m->user_id;
+            }
+
+            $currentUplineUserIds = $nextUplineUserIds;
+            $level++;
+        }
+
+        // Persist on slot
+        $slot->tree_member_ids = $result;
+        $slot->save();
+    }
+
+    /**
+     * Compute total members across 4 levels for a root (on the fly, not persisted)
+     */
+    private function computeFourLevelCountForRoot(int $rootRelationshipId): int
+    {
+        $root = ReferralRelationship::find($rootRelationshipId);
+        if (!$root) {
+            return 0;
+        }
+
+        $level = 1;
+        $caps = [1 => 2, 2 => 4, 3 => 8, 4 => 16];
+        $total = 0;
+        $currentUplineUserIds = [$root->user_id];
+        while ($level <= 4 && !empty($currentUplineUserIds)) {
+            $members = ReferralRelationship::where('main_upline_id', $rootRelationshipId)
+                ->whereIn('upline_id', $currentUplineUserIds)
+                ->count();
+            $total += min($members, $caps[$level]);
+
+            // prepare next layer
+            $nextUplineUserIds = ReferralRelationship::where('main_upline_id', $rootRelationshipId)
+                ->whereIn('upline_id', $currentUplineUserIds)
+                ->pluck('user_id')
+                ->all();
+
+            $currentUplineUserIds = $nextUplineUserIds;
+            $level++;
+        }
+
+        return $total;
+    }
+
+    /**
      * Add user to their own tree (for multiple slot purchases)
      * Places user in first empty slot of their own tree
      * All members can buy multiple slots in their own tree
@@ -201,11 +295,16 @@ class BuySlotTreeController extends Controller
         // Find first empty slot in user's own tree
         $placement = $this->findFirstEmptySlotInOwnTree($user->id);
 
-        // Validate that slot is not already occupied (double-check for immutability)
-        $this->validateSlotNotReplaced($placement['upline_id'], $placement['position'], $user->id);
+        // Validate that slot is not already occupied INSIDE THIS TREE (double-check for immutability)
+        $this->validateSlotNotReplaced(
+            $placement['upline_id'],
+            $placement['position'],
+            $user->id,
+            $placement['upline_relationship_id'] ?? null // treat as tree root id when provided
+        );
 
-        // Get the main upline ID (the referral_relationships table primary ID of the upline)
-        $mainUplineId = $this->getMainUplineId($placement['upline_id']);
+        // Determine the tree root id (main_upline_id to store). Prefer placement's root when available
+        $mainUplineId = $placement['upline_relationship_id'] ?? $this->getMainUplineId($placement['upline_id']);
 
         // Create the referral relationship entry with user_slots_id
         $newUserEntry = [
@@ -234,7 +333,12 @@ class BuySlotTreeController extends Controller
         // Calculate the level based on the upline's position in the tree
         $level = $this->calculateTreeLevel($placement['upline_id'], $user->id);
 
-        // Add this user to ALL relevant users' tree structures
+        // Rebuild tree members for this root to keep per-level caps correct (2/4/8/16)
+        if ($mainUplineId) {
+            $this->rebuildTreeMembersForRoot($mainUplineId);
+        }
+
+        // Add this user to ALL relevant users' tree structures (legacy per-user view)
         $this->addMemberToAllRelevantTrees($user->id, $level, $placement['upline_id']);
 
         Log::info("✅ USER ADDED TO OWN TREE: {$user->username} (ID: {$user->id}) placed under {$placement['upline_username']} (ID: {$placement['upline_id']}) Position: {$placement['position']} in their own tree - SLOT PERMANENTLY ASSIGNED");
@@ -424,51 +528,109 @@ class BuySlotTreeController extends Controller
             throw new \Exception("User not found: {$userId}");
         }
 
-        // Check user's left slot first
-        if ($this->isSlotAvailable($userId, 'L')) {
-            return [
-                'upline_id' => $userId,
-                'upline_username' => $user->username,
-                'position' => 'L'
-            ];
+        // Always target earliest NOT-FULL round (member_count < 30) if available,
+        // otherwise default to newest tree
+        // Choose earliest root whose current computed 4-level member total is < 30, else newest
+        $roots = ReferralRelationship::where('user_id', $userId)
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $targetRoot = null;
+        foreach ($roots as $root) {
+            $total = $this->computeFourLevelCountForRoot($root->id);
+            if ($total < 30) {
+                $targetRoot = $root;
+                break;
+            }
+        }
+        if (!$targetRoot) {
+            $targetRoot = ReferralRelationship::where('user_id', $userId)
+                ->orderBy('id', 'desc')
+                ->first();
         }
 
-        // Check user's right slot second
-        if ($this->isSlotAvailable($userId, 'R')) {
-            return [
-                'upline_id' => $userId,
-                'upline_username' => $user->username,
-                'position' => 'R'
-            ];
+        // Self-purchase rule: do NOT place under the root user's own L/R.
+        // Start BFS from level-2 candidates: get level-1 children first, then traverse their subtrees.
+        $level1 = ReferralRelationship::where('main_upline_id', $targetRoot->id)
+            ->where('upline_id', $userId)
+            ->orderBy('position', 'asc')
+            ->get(['id','user_id']);
+
+        // If no level 1 yet in this round, allow direct placement under root user's L then R
+        if ($level1->isEmpty()) {
+            if ($this->isSlotAvailableInTree($userId, 'L', $targetRoot->id)) {
+                return [
+                    'upline_id' => $userId,
+                    'upline_username' => $user->username,
+                    'position' => 'L',
+                    'upline_relationship_id' => $targetRoot->id
+                ];
+            }
+            if ($this->isSlotAvailableInTree($userId, 'R', $targetRoot->id)) {
+                return [
+                    'upline_id' => $userId,
+                    'upline_username' => $user->username,
+                    'position' => 'R',
+                    'upline_relationship_id' => $targetRoot->id
+                ];
+            }
         }
 
-        // If user's slots are full, use BFS to find next available slot
-        $queue = [$userId];
+        // BFS within the chosen root restricted by main_upline_id = root id, starting from level-1 children
+        $queue = $level1->pluck('id')->all();
         $visited = [];
 
         while (!empty($queue)) {
-            $currentId = array_shift($queue);
+            $currentRelId = array_shift($queue);
 
-            if (in_array($currentId, $visited)) {
+            if (in_array($currentRelId, $visited)) {
                 continue;
             }
-            $visited[] = $currentId;
+            $visited[] = $currentRelId;
 
-            // Check if this user has available slots (left-right priority)
-            $availableSlot = $this->findFirstAvailableSlotForUpline($currentId);
+            // Get the actual user_id for this relationship row
+            $rel = ReferralRelationship::find($currentRelId);
+            if (!$rel) {
+                continue;
+            }
+
+            // Check if this user has available slots (left-right priority) WITHIN THIS TREE
+            $availableSlot = null;
+            if ($this->isSlotAvailableInTree($rel->user_id, 'L', $targetRoot->id)) {
+                $availableSlot = [
+                    'upline_id' => $rel->user_id,
+                    'upline_username' => User::find($rel->user_id)->username,
+                    'position' => 'L',
+                    'upline_relationship_id' => $targetRoot->id
+                ];
+            } elseif ($this->isSlotAvailableInTree($rel->user_id, 'R', $targetRoot->id)) {
+                $availableSlot = [
+                    'upline_id' => $rel->user_id,
+                    'upline_username' => User::find($rel->user_id)->username,
+                    'position' => 'R',
+                    'upline_relationship_id' => $targetRoot->id
+                ];
+            }
             if ($availableSlot) {
                 return $availableSlot;
             }
 
-            // Both slots are filled, add children to queue for next level
-            $children = ReferralRelationship::where('upline_id', $currentId)
-                ->orderBy('position', 'asc') // Left first, then right
-                ->get();
+            // Both slots are filled, add children relationships of THIS ROOT to queue for next level
+            $children = ReferralRelationship::where('main_upline_id', $targetRoot->id)
+                ->where('upline_id', $rel->user_id)
+                ->orderBy('position', 'asc')
+                ->get(['id','user_id']);
+
+            // If none found in this root (legacy rows), also look for classic children to skip to next in global tree
+            if ($children->isEmpty()) {
+                $children = ReferralRelationship::whereNull('main_upline_id')
+                    ->where('upline_id', $rel->user_id)
+                    ->orderBy('position', 'asc')
+                    ->get(['id','user_id']);
+            }
 
             foreach ($children as $child) {
-                if (!in_array($child->user_id, $visited)) {
-                    $queue[] = $child->user_id;
-                }
+                $queue[] = $child->id; // traverse by relationship id within same tree
             }
         }
 
@@ -491,8 +653,8 @@ class BuySlotTreeController extends Controller
 
         // Use DB transaction to ensure atomicity
         DB::transaction(function () use ($sponsor, $newUser, $levelPlan, $userSlotId) {
-            // Step 1: Find first empty slot in sponsor's earliest non-full tree for the SAME level plan (prioritize older trees)
-            $placement = $this->findFirstEmptySlotInSponsorEarliestNonFullTree($sponsor->id, $levelPlan);
+            // Step 1: Find first empty slot in SPONSOR'S ACTIVE TREE (latest slot subtree)
+            $placement = $this->findFirstEmptySlotInSponsorActiveTree($sponsor->id);
 
             // Step 2: Validate that slot is not already occupied WITHIN THIS TREE (immutability check)
             $this->validateSlotNotReplaced($placement['upline_id'], $placement['position'], $newUser->id, $placement['upline_relationship_id'] ?? null);
@@ -527,7 +689,12 @@ class BuySlotTreeController extends Controller
             // Calculate the level based on the upline's position in the tree
             $level = $this->calculateTreeLevel($placement['upline_id'], $newUser->id);
 
-            // Add this user to ALL relevant users' tree structures
+            // Rebuild tree members for this root to keep per-level caps correct (2/4/8/16)
+            if ($mainUplineId) {
+                $this->rebuildTreeMembersForRoot($mainUplineId);
+            }
+
+            // Add this user to ALL relevant users' tree structures (legacy per-user view)
             $this->addMemberToAllRelevantTrees($newUser->id, $level, $placement['upline_id']);
 
             // Log the successful creation of new user entry
@@ -536,166 +703,6 @@ class BuySlotTreeController extends Controller
             Log::info("✅ TREE MEMBER ADDED: User {$newUser->username} added to tree at level {$level}");
         });
     }
-
-    /**
-     * Find first empty slot in sponsor's earliest NON-FULL tree.
-     * Prioritizes the oldest tree (lowest relationship id) that has space (< 30 members).
-     */
-    private function findFirstEmptySlotInSponsorEarliestNonFullTree($sponsorId, $levelPlan = null)
-    {
-        $sponsor = User::find($sponsorId);
-        if (!$sponsor) {
-            throw new \Exception("Sponsor not found: {$sponsorId}");
-        }
-
-        // Treat each of sponsor's referral relationships as a tree root for their own subtree
-        // (children in that subtree reference this relationship id via main_upline_id)
-        // Order by creation (oldest first) so we fill older trees before newer ones
-        $rootsQuery = ReferralRelationship::where('user_id', $sponsorId)
-            ->orderBy('id', 'asc');
-
-        if ($levelPlan) {
-            $rootsMatchingLevel = (clone $rootsQuery)
-                ->where('level_id', $levelPlan->id)
-                ->get();
-        } else {
-            $rootsMatchingLevel = collect();
-        }
-
-        $roots = $rootsMatchingLevel->isNotEmpty() ? $rootsMatchingLevel : $rootsQuery->get();
-
-        // If sponsor has no trees yet, fall back to immediate L/R under sponsor user id
-        if ($roots->isEmpty()) {
-            if ($this->isSlotAvailable($sponsorId, 'L')) {
-                return [
-                    'upline_id' => $sponsorId,
-                    'upline_username' => $sponsor->username,
-                    'position' => 'L',
-                    'upline_relationship_id' => null
-                ];
-            }
-            if ($this->isSlotAvailable($sponsorId, 'R')) {
-                return [
-                    'upline_id' => $sponsorId,
-                    'upline_username' => $sponsor->username,
-                    'position' => 'R',
-                    'upline_relationship_id' => null
-                ];
-            }
-
-            // Fallback
-            return [
-                'upline_id' => $sponsorId,
-                'upline_username' => $sponsor->username,
-                'position' => 'L',
-                'upline_relationship_id' => null
-            ];
-        }
-
-        // Try each root; pick the first that is not full and has an available slot
-        foreach ($roots as $root) {
-            if (!$this->isTreeFull($root->id)) {
-                // Check immediate L/R under this tree's root
-                if ($this->isTreeSlotAvailable($root->id, 'L')) {
-                    return [
-                        'upline_id' => $root->user_id,
-                        'upline_username' => $root->user_username,
-                        'position' => 'L',
-                        'upline_relationship_id' => $root->id
-                    ];
-                }
-                if ($this->isTreeSlotAvailable($root->id, 'R')) {
-                    return [
-                        'upline_id' => $root->user_id,
-                        'upline_username' => $root->user_username,
-                        'position' => 'R',
-                        'upline_relationship_id' => $root->id
-                    ];
-                }
-
-                // Tree-aware BFS within this root
-                $queue = [$root->id];
-                $visited = [];
-                while (!empty($queue)) {
-                    $currentRelId = array_shift($queue);
-                    if (in_array($currentRelId, $visited)) {
-                        continue;
-                    }
-                    $visited[] = $currentRelId;
-
-                    if ($this->isTreeSlotAvailable($currentRelId, 'L')) {
-                        $upline = ReferralRelationship::find($currentRelId);
-                        return [
-                            'upline_id' => $upline->user_id,
-                            'upline_username' => $upline->user_username,
-                            'position' => 'L',
-                            'upline_relationship_id' => $currentRelId
-                        ];
-                    }
-                    if ($this->isTreeSlotAvailable($currentRelId, 'R')) {
-                        $upline = ReferralRelationship::find($currentRelId);
-                        return [
-                            'upline_id' => $upline->user_id,
-                            'upline_username' => $upline->user_username,
-                            'position' => 'R',
-                            'upline_relationship_id' => $currentRelId
-                        ];
-                    }
-
-                    $children = ReferralRelationship::where('main_upline_id', $currentRelId)
-                        ->orderBy('position', 'asc')
-                        ->get();
-                    foreach ($children as $child) {
-                        if (!in_array($child->id, $visited)) {
-                            $queue[] = $child->id;
-                        }
-                    }
-                }
-            }
-        }
-
-        // If all existing trees are full, fall back to latest active tree logic (or legacy)
-        return $this->findFirstEmptySlotInSponsorActiveTree($sponsorId);
-    }
-
-    /**
-     * Determine if a given tree (by root relationship id) is full (30 members).
-     */
-    private function isTreeFull($rootRelationshipId)
-    {
-        $maxMembers = 30; // levels 1-4: 2 + 4 + 8 + 16
-        $count = 0;
-
-        $queue = [$rootRelationshipId];
-        $visited = [];
-        $level = 0;
-
-        while (!empty($queue) && $level < 4) {
-            $next = [];
-            foreach ($queue as $currentRelId) {
-                if (in_array($currentRelId, $visited)) {
-                    continue;
-                }
-                $visited[] = $currentRelId;
-
-                $children = ReferralRelationship::where('main_upline_id', $currentRelId)
-                    ->orderBy('position', 'asc')
-                    ->get();
-                foreach ($children as $child) {
-                    $next[] = $child->id;
-                    $count++;
-                    if ($count >= $maxMembers) {
-                        return true;
-                    }
-                }
-            }
-            $queue = $next;
-            $level++;
-        }
-
-        return $count >= $maxMembers;
-    }
-
 
 
     /**
@@ -895,14 +902,39 @@ class BuySlotTreeController extends Controller
     }
 
     /**
+     * Check availability within a specific tree context (by root relationship id)
+     */
+    private function isSlotAvailableInTree($uplineId, $position, $rootRelationshipId)
+    {
+        // Prefer strict check inside this tree
+        $existingUser = ReferralRelationship::where('main_upline_id', $rootRelationshipId)
+            ->where('upline_id', $uplineId)
+            ->where('position', $position)
+            ->first();
+
+        if ($existingUser) {
+            return false;
+        }
+
+        // Safety: if legacy rows missed main_upline_id, still consider globally occupied
+        $globalExisting = ReferralRelationship::whereNull('main_upline_id')
+            ->where('upline_id', $uplineId)
+            ->where('position', $position)
+            ->first();
+
+        return !$globalExisting;
+    }
+
+    /**
      * Validate that user is not trying to replace an existing slot
      * Slots are immutable once assigned
      */
     private function validateSlotNotReplaced($uplineId, $position, $userId, $uplineRelationshipId = null)
     {
-        // When a tree context is provided, enforce immutability within that specific tree only
+        // When a tree context is provided, enforce immutability within that specific tree and upline
         if ($uplineRelationshipId) {
             $existingSlot = ReferralRelationship::where('main_upline_id', $uplineRelationshipId)
+                ->where('upline_id', $uplineId)
                 ->where('position', $position)
                 ->first();
         } else {
@@ -1125,24 +1157,35 @@ class BuySlotTreeController extends Controller
     private function getTreeStructureByMainUplineId($mainUplineId, $maxLevels = 4)
     {
         $levelData = [];
-        $currentLevel = [$mainUplineId]; // Start with the main upline ID
-        $level = 1;
+        // Traverse by user ids per level within fixed main_upline_id (the tree root)
+        $root = ReferralRelationship::find($mainUplineId);
+        if (!$root) {
+            return $levelData;
+        }
 
-        while ($level <= $maxLevels && !empty($currentLevel)) {
-            $nextLevel = [];
+        $currentUplineUserIds = [$root->user_id];
+        $level = 1;
+        $anyFound = false;
+        while ($level <= $maxLevels && !empty($currentUplineUserIds)) {
+            $nextUplineUserIds = [];
             $levelMembers = [];
 
-            foreach ($currentLevel as $currentMainId) {
-                // Get direct children using main_upline_id
-                $children = ReferralRelationship::where('main_upline_id', $currentMainId)
-                    ->orderBy('position', 'asc') // Left first, then right
+            // Collect children per-parent to allow fallback if some rows missed main_upline_id
+            foreach ($currentUplineUserIds as $parentUserId) {
+                $rows = ReferralRelationship::where('main_upline_id', $mainUplineId)
+                    ->where('upline_id', $parentUserId)
+                    ->orderBy('position', 'asc')
                     ->get();
-                
-                // Debug: Log the query results
-                Log::info("Level {$level} - Looking for children of main_upline_id {$currentMainId}:", $children->toArray());
 
-                foreach ($children as $child) {
-                    $nextLevel[] = $child->id; // Use relationship ID for next level
+                // Fallback: if none found with main_upline_id for this parent, try classic by upline only
+                if ($rows->isEmpty()) {
+                    $rows = ReferralRelationship::where('upline_id', $parentUserId)
+                        ->orderBy('position', 'asc')
+                        ->get();
+                }
+
+                foreach ($rows as $child) {
+                    $nextUplineUserIds[] = $child->user_id;
                     $levelMembers[] = [
                         'user_id' => $child->user_id,
                         'username' => $child->user_username,
@@ -1161,8 +1204,49 @@ class BuySlotTreeController extends Controller
                 'members' => $levelMembers
             ];
 
-            $currentLevel = $nextLevel;
+            if (count($levelMembers) > 0) {
+                $anyFound = true;
+            }
+            $currentUplineUserIds = $nextUplineUserIds;
             $level++;
+        }
+
+        // Fallback: if no members were found under this root (data may not have main_upline_id filled),
+        // attempt classic traversal without main_upline_id constraint so at least something renders.
+        if (!$anyFound) {
+            $levelData = [];
+            $current = [$root->user_id];
+            $level = 1;
+            while ($level <= $maxLevels && !empty($current)) {
+                $next = [];
+                $members = ReferralRelationship::whereIn('upline_id', $current)
+                    ->orderBy('upline_id')
+                    ->orderBy('position', 'asc')
+                    ->get();
+
+                $mapped = [];
+                foreach ($members as $child) {
+                    $next[] = $child->user_id;
+                    $mapped[] = [
+                        'user_id' => $child->user_id,
+                        'username' => $child->user_username,
+                        'position' => $child->position,
+                        'upline_id' => $child->upline_id,
+                        'upline_username' => $child->upline_username,
+                        'relationship_id' => $child->id,
+                        'level_number' => $child->level_number,
+                        'slot_price' => $child->slot_price
+                    ];
+                }
+
+                $levelData[$level] = [
+                    'count' => count($mapped),
+                    'members' => $mapped
+                ];
+
+                $current = $next;
+                $level++;
+            }
         }
 
         // Fill remaining levels with empty data if we didn't reach max levels
