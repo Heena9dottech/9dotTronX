@@ -126,7 +126,6 @@ class BuySlotTreeController extends Controller
             'slot_price' => $levelPlan->price,
             'level_id' => $levelPlan->id,
             'user_slots_id' => $userSlotId,
-            'tree_owner_id' => $user->id, // First user becomes tree owner
             'main_upline_id' => null // First user has no main upline
         ];
 
@@ -205,9 +204,6 @@ class BuySlotTreeController extends Controller
         // Validate that slot is not already occupied (double-check for immutability)
         $this->validateSlotNotReplaced($placement['upline_id'], $placement['position'], $user->id);
 
-        // Get the tree owner (first user who created the tree)
-        $treeOwner = $this->getTreeOwner($user->id);
-
         // Get the main upline ID (the referral_relationships table primary ID of the upline)
         $mainUplineId = $this->getMainUplineId($placement['upline_id']);
 
@@ -224,7 +220,6 @@ class BuySlotTreeController extends Controller
             'slot_price' => $levelPlan->price,
             'level_id' => $levelPlan->id,
             'user_slots_id' => $userSlotId,
-            'tree_owner_id' => $treeOwner['id'],
             'main_upline_id' => $mainUplineId
         ];
 
@@ -247,31 +242,6 @@ class BuySlotTreeController extends Controller
         Log::info("✅ TREE MEMBER ADDED: User {$user->username} added to tree at level {$level}");
     }
 
-    /**
-     * Get the tree owner for a user
-     * Tree owner is the first user in the system (the one who created the tree)
-     */
-    private function getTreeOwner($userId)
-    {
-        // Find the first user in the system (tree owner)
-        $treeOwner = ReferralRelationship::where('tree_owner_id', '!=', null)
-            ->where('tree_owner_id', '!=', 0)
-            ->first();
-
-        if ($treeOwner) {
-            return [
-                'id' => $treeOwner->tree_owner_id,
-                'username' => User::find($treeOwner->tree_owner_id)->username
-            ];
-        }
-
-        // Fallback: if no tree owner found, use the current user
-        $user = User::find($userId);
-        return [
-            'id' => $userId,
-            'username' => $user->username
-        ];
-    }
 
     /**
      * Get the main upline ID (referral_relationships table primary ID)
@@ -303,13 +273,13 @@ class BuySlotTreeController extends Controller
      */
     private function calculateTreeLevel($uplineUserId, $currentUserId)
     {
-        // If upline is the tree owner (first user), this is level 1
-        $firstUser = ReferralRelationship::where('tree_owner_id', '!=', null)
-            ->where('tree_owner_id', '!=', 0)
+        // If upline has no upline_id, they are the root (first user)
+        $uplineEntry = ReferralRelationship::where('user_id', $uplineUserId)
+            ->orderBy('id', 'desc')
             ->first();
 
-        if ($firstUser && $uplineUserId == $firstUser->user_id) {
-            return 1; // Direct under tree owner is level 1
+        if ($uplineEntry && !$uplineEntry->upline_id) {
+            return 1; // Direct under root is level 1
         }
 
         // Find the upline's level by checking their position in the tree
@@ -346,8 +316,8 @@ class BuySlotTreeController extends Controller
             return 0; // Default to level 0
         }
 
-        // If this is the tree owner, they are level 0 (not stored in tree)
-        if ($userEntry->tree_owner_id == $userId) {
+        // Check if this is the first user (no upline_id means they are the root)
+        if (!$userEntry->upline_id) {
             return 0;
         }
 
@@ -371,54 +341,6 @@ class BuySlotTreeController extends Controller
         return $level;
     }
 
-    /**
-     * Add a member to the tree owner's slot
-     * Enforces 2-4-8-16 member limits per level
-     * 
-     * @param int $userId The user ID
-     * @param int $level The level to add the member to
-     */
-    private function addMemberToTreeOwnerSlot($userId, $level)
-    {
-        // Find the tree owner's slot
-        $treeOwner = ReferralRelationship::where('tree_owner_id', '!=', null)
-            ->where('tree_owner_id', '!=', 0)
-            ->first();
-
-        if (!$treeOwner) {
-            Log::warning("Tree owner not found for user {$userId}");
-            return;
-        }
-
-        // Find the tree owner's user slot
-        $treeOwnerSlot = UserSlot::where('user_id', $treeOwner->user_id)
-            ->where('referral_relationship_id', $treeOwner->id)
-            ->first();
-
-        if ($treeOwnerSlot) {
-            // Check total slots limit (16 max) and level limits
-            $totalMembers = count($treeOwnerSlot->getAllTreeMembers());
-            $levelLimits = [1 => 2, 2 => 4, 3 => 8, 4 => 16]; // Level limits: 2-4-8-16
-            $currentLevelCount = count($treeOwnerSlot->getTreeMembersByLevel($level));
-
-            // Check total limit first (16 slots max)
-            if ($totalMembers >= 16) {
-                Log::warning("Tree is full (16/16 slots). Cannot add user {$userId}");
-                return;
-            }
-
-            // Check level limit
-            if ($currentLevelCount >= $levelLimits[$level]) {
-                Log::warning("Level {$level} is full ({$currentLevelCount}/{$levelLimits[$level]}). Cannot add user {$userId}");
-                return;
-            }
-
-            $treeOwnerSlot->addTreeMember($userId, $level);
-            Log::info("✅ TREE MEMBER ADDED: User {$userId} added to tree owner's slot at level {$level} (" . ($currentLevelCount + 1) . "/{$levelLimits[$level]}) - Total: " . ($totalMembers + 1) . "/16");
-        } else {
-            Log::warning("Tree owner's slot not found for user {$userId}");
-        }
-    }
 
     /**
      * Add a member to ALL relevant users' tree structures
@@ -430,13 +352,10 @@ class BuySlotTreeController extends Controller
      */
     private function addMemberToAllRelevantTrees($newUserId, $level, $uplineUserId)
     {
-        // 1. Add to tree owner's structure (main tree)
-        $this->addMemberToTreeOwnerSlot($newUserId, $level);
-
-        // 2. Add to direct upline's structure (level 1 for upline)
+        // 1. Add to direct upline's structure (level 1 for upline)
         $this->addMemberToUserTree($uplineUserId, $newUserId, 1);
 
-        // 3. Add to all upline chain users (each sees it at their appropriate level)
+        // 2. Add to all upline chain users (each sees it at their appropriate level)
         $this->addMemberToUplineChain($newUserId, $uplineUserId, $level);
     }
 
@@ -578,9 +497,6 @@ class BuySlotTreeController extends Controller
             // Step 2: Validate that slot is not already occupied WITHIN THIS TREE (immutability check)
             $this->validateSlotNotReplaced($placement['upline_id'], $placement['position'], $newUser->id, $placement['upline_relationship_id'] ?? null);
 
-            // Get the tree owner
-            $treeOwner = $this->getTreeOwner($newUser->id);
-
             // Get the main upline ID within the ACTIVE TREE (referral_relationships primary ID for the chosen upline relationship)
             $mainUplineId = $placement['upline_relationship_id'] ?? $this->getMainUplineId($placement['upline_id']);
 
@@ -597,7 +513,6 @@ class BuySlotTreeController extends Controller
                 'slot_price' => $levelPlan->price,
                 'level_id' => $levelPlan->id,
                 'user_slots_id' => $userSlotId,
-                'tree_owner_id' => $treeOwner['id'],
                 'main_upline_id' => $mainUplineId
             ];
 
@@ -892,122 +807,237 @@ class BuySlotTreeController extends Controller
         return null;
     }
 
+
     /**
-     * Get tree structure by levels
-     * API endpoint: GET /api/tree-structure-levels/{username}
+     * Display tree by user slot (round-based)
+     * Web route: GET /tree-display/{username}/{round}
      * 
      * @param string $username
-     * @return \Illuminate\Http\JsonResponse
+     * @param int $round
+     * @return \Illuminate\View\View
      */
-    public function getTreeStructureByLevels($username)
+    public function displayTree($username, $round = 1)
     {
         try {
             // Find the user
             $user = User::where('username', $username)->first();
             if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User not found'
-                ], 404);
+                return view('errors.404')->with('message', 'User not found');
             }
 
-            // Find the tree owner's slot
-            $treeOwner = ReferralRelationship::where('tree_owner_id', '!=', null)
-                ->where('tree_owner_id', '!=', 0)
-                ->first();
+            // Get all user slots for this user with their level plans
+            $userSlots = UserSlot::where('user_id', $user->id)
+                ->with('levelPlan')
+                ->orderBy('id', 'asc')
+                ->get();
 
-            if (!$treeOwner) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tree owner not found'
-                ], 404);
+            if ($userSlots->isEmpty()) {
+                return view('errors.404')->with('message', 'No slots found for user ' . $username);
             }
 
-            // Get tree owner's slot
-            $treeOwnerSlot = UserSlot::where('user_id', $treeOwner->user_id)
-                ->where('referral_relationship_id', $treeOwner->id)
-                ->first();
-
-            if (!$treeOwnerSlot) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tree owner slot not found'
-                ], 404);
-            }
-
-            // Get tree summary with member details
-            $treeSummary = $this->getDetailedTreeSummary($treeOwnerSlot);
-
-            $totalMembers = array_sum(array_column($treeSummary, 'count'));
-
-            return response()->json([
-                'success' => true,
-                'message' => "Tree structure retrieved for {$username}",
-                'data' => [
-                    'tree_owner' => [
-                        'id' => $treeOwner->user_id,
-                        'username' => $treeOwner->user_username
-                    ],
-                    'tree_structure' => $treeSummary,
-                    'total_members' => $totalMembers,
-                    'total_limit' => 16,
-                    'is_full' => $totalMembers >= 16
-                ]
-            ], 200);
-        } catch (\Exception $e) {
-            Log::error('API Error getting tree structure: ' . $e->getMessage());
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Error retrieving tree structure: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Get detailed tree summary with member information
-     * 
-     * @param UserSlot $treeOwnerSlot
-     * @return array
-     */
-    private function getDetailedTreeSummary($treeOwnerSlot)
-    {
-        $treeMembers = $treeOwnerSlot->tree_member_ids ?? [];
-        $summary = [];
-
-        for ($i = 1; $i <= 4; $i++) {
-            $levelMembers = $treeMembers["level_{$i}"] ?? [];
-            $memberDetails = [];
-
-            // Get member details for each level
-            foreach ($levelMembers as $userId) {
-                // Get user details from users table
-                $user = User::find($userId);
-
-                if ($user) {
-                    // Get the latest referral relationship for this user
-                    $referral = ReferralRelationship::where('user_id', $userId)
-                        ->orderBy('id', 'desc')
-                        ->first();
-
-                    $memberDetails[] = [
-                        'user_id' => $userId,
-                        'username' => $user->username, // Username from users table
-                        'position' => $referral ? $referral->position : null,
-                        'level_number' => $referral ? $referral->level_number : null,
-                        'slot_price' => $referral ? $referral->slot_price : null
+            // Get available rounds (slot prices)
+            $availableRounds = [];
+            foreach ($userSlots as $slot) {
+                if ($slot->levelPlan) {
+                    $availableRounds[] = [
+                        'round' => $slot->id,
+                        'slot_price' => $slot->levelPlan->price,
+                        'level_name' => $slot->levelPlan->name,
+                        'level_number' => $slot->levelPlan->level_number
                     ];
                 }
             }
 
-            $summary["level_{$i}"] = [
-                'count' => count($levelMembers),
-                'limit' => [1 => 2, 2 => 4, 3 => 8, 4 => 16][$i],
-                'members' => $memberDetails
+            // Find the user slot for the specified round
+            $userSlot = $userSlots->where('id', $round)->first();
+
+            if (!$userSlot) {
+                // If specific round not found, use the first available slot
+                $userSlot = $userSlots->first();
+                $round = $userSlot->id;
+            }
+
+            // Get the referral relationship for this slot
+            $referralRelationship = ReferralRelationship::where('user_slots_id', $userSlot->id)->first();
+
+            if (!$referralRelationship) {
+                return view('errors.404')->with('message', 'No tree data found for this slot');
+            }
+
+            // Get tree structure using main_upline_id for 4 levels
+            $treeData = $this->getTreeStructureByMainUplineId($referralRelationship->id, 4);
+            
+            // Debug: Log the tree data
+            Log::info('Tree Data for ' . $user->username . ' (Round ' . $round . '):', $treeData);
+            
+            // Build tree structure for display
+            $treeStructure = $this->buildTreeStructure($treeData, $referralRelationship);
+            
+            // Debug: Log the tree structure
+            Log::info('Tree Structure for ' . $user->username . ' (Round ' . $round . '):', $treeStructure);
+
+            // Calculate slot price-based statistics
+            $slotPriceStats = $this->calculateSlotPriceStats($treeData, $userSlot->levelPlan->price);
+
+            return view('tree-display', [
+                'user' => $user,
+                'userSlot' => $userSlot,
+                'referralRelationship' => $referralRelationship,
+                'treeData' => $treeData,
+                'treeStructure' => $treeStructure,
+                'round' => $round,
+                'availableRounds' => $availableRounds,
+                'slotPriceStats' => $slotPriceStats
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error displaying tree: ' . $e->getMessage());
+            return view('errors.500')->with('message', 'Error displaying tree: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Calculate slot price-based statistics
+     * 
+     * @param array $treeData
+     * @param float $currentSlotPrice
+     * @return array
+     */
+    private function calculateSlotPriceStats($treeData, $currentSlotPrice)
+    {
+        $stats = [
+            'current_slot_price' => $currentSlotPrice,
+            'total_members' => 0,
+            'members_by_price' => [],
+            'level_breakdown' => []
+        ];
+
+        // Get all slot prices from level plans
+        $levelPlans = LevelPlan::active()->get();
+        $slotPrices = $levelPlans->pluck('price')->unique()->sort()->values();
+
+        // Initialize price groups
+        foreach ($slotPrices as $price) {
+            $stats['members_by_price'][$price] = [
+                'count' => 0,
+                'members' => []
             ];
         }
 
-        return $summary;
+        // Count members by slot price for each level
+        for ($level = 1; $level <= 4; $level++) {
+            $levelCount = 0;
+            $levelMembers = [];
+
+            if (isset($treeData[$level]['members'])) {
+                foreach ($treeData[$level]['members'] as $member) {
+                    $levelCount++;
+                    $stats['total_members']++;
+                    
+                    // Get slot price from member data
+                    $memberSlotPrice = $member['slot_price'] ?? $currentSlotPrice;
+                    
+                    if (isset($stats['members_by_price'][$memberSlotPrice])) {
+                        $stats['members_by_price'][$memberSlotPrice]['count']++;
+                        $stats['members_by_price'][$memberSlotPrice]['members'][] = $member['username'];
+                    }
+
+                    $levelMembers[] = $member['username'];
+                }
+            }
+
+            $stats['level_breakdown']["level_{$level}"] = [
+                'count' => $levelCount,
+                'members' => implode(', ', $levelMembers)
+            ];
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Get tree structure using main_upline_id for specified levels
+     * 
+     * @param int $mainUplineId
+     * @param int $maxLevels
+     * @return array
+     */
+    private function getTreeStructureByMainUplineId($mainUplineId, $maxLevels = 4)
+    {
+        $levelData = [];
+        $currentLevel = [$mainUplineId]; // Start with the main upline ID
+        $level = 1;
+
+        while ($level <= $maxLevels && !empty($currentLevel)) {
+            $nextLevel = [];
+            $levelMembers = [];
+
+            foreach ($currentLevel as $currentMainId) {
+                // Get direct children using main_upline_id
+                $children = ReferralRelationship::where('main_upline_id', $currentMainId)
+                    ->orderBy('position', 'asc') // Left first, then right
+                    ->get();
+                
+                // Debug: Log the query results
+                Log::info("Level {$level} - Looking for children of main_upline_id {$currentMainId}:", $children->toArray());
+
+                foreach ($children as $child) {
+                    $nextLevel[] = $child->id; // Use relationship ID for next level
+                    $levelMembers[] = [
+                        'user_id' => $child->user_id,
+                        'username' => $child->user_username,
+                        'position' => $child->position,
+                        'upline_id' => $child->upline_id,
+                        'upline_username' => $child->upline_username,
+                        'relationship_id' => $child->id,
+                        'level_number' => $child->level_number,
+                        'slot_price' => $child->slot_price
+                    ];
+                }
+            }
+
+            $levelData[$level] = [
+                'count' => count($levelMembers),
+                'members' => $levelMembers
+            ];
+
+            $currentLevel = $nextLevel;
+            $level++;
+        }
+
+        // Fill remaining levels with empty data if we didn't reach max levels
+        for ($i = $level; $i <= $maxLevels; $i++) {
+            $levelData[$i] = [
+                'count' => 0,
+                'members' => []
+            ];
+        }
+
+        return $levelData;
+    }
+
+    /**
+     * Build tree structure for display
+     * 
+     * @param array $treeData
+     * @param object $referralRelationship
+     * @return array
+     */
+    public function buildTreeStructure($treeData, $referralRelationship)
+    {
+        $treeStructure = [];
+        
+        // Add members from each level (level 1 = direct children, level 2 = grandchildren, etc.)
+        for ($level = 1; $level <= 4; $level++) {
+            if (isset($treeData[$level]['members']) && count($treeData[$level]['members']) > 0) {
+                $treeStructure[$level] = $treeData[$level]['members'];
+            } else {
+                // Empty level
+                $treeStructure[$level] = [];
+            }
+        }
+        
+        return $treeStructure;
     }
 
     /**

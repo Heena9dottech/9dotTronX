@@ -28,6 +28,9 @@ Route::post('/buy-level-plan', [TreeController::class, 'buyLevelPlan'])->name('b
 // New routes for user tree display
 Route::get('/users', [UserTreeController::class, 'index'])->name('users.index');
 Route::get('/users/{username}/tree/{round?}', [UserTreeController::class, 'showTree'])->name('users.tree');
+
+// New tree display route using BuySlotTreeController
+Route::get('/tree-display/{username}/{round?}', [BuySlotTreeController::class, 'displayTree'])->name('tree.display');
 Route::get('/tree-overview', [UserTreeController::class, 'overview'])->name('tree.overview');
 
 // API routes for tree data
