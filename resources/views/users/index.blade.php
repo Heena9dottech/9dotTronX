@@ -191,11 +191,16 @@
                     <!-- Page Header -->
                     <div class="page-header">
                         <div class="row align-items-center">
-                            <div class="col-md-8">
+                            <div class="col-md-6">
                                 <h1 class="page-title">All Users</h1>
                                 <p class="page-subtitle">Manage and view all users in your MLM network</p>
                             </div>
-                            <div class="col-md-4 text-end">
+                            <div class="col-md-6 text-end">
+                                <a href="{{ route('buy-slot-form') }}" class="btn btn-light btn-lg">
+                                    <i class="fas fa-plus me-2"></i>
+                                    Buy slot
+                                </a>
+
                                 <a href="http://127.0.0.1:8000/users/john/tree" class="btn btn-light btn-lg">
                                     <i class="fas fa-sitemap me-1"></i>
                                     John Tree

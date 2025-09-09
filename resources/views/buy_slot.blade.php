@@ -265,16 +265,9 @@
                                 @endif
                                 
                                 <!-- Auto-generated Info Box -->
-                                <div class="info-box">
-                                    <h6><i class="fas fa-info-circle me-2"></i>Multi-Slot MLM Information</h6>
-                                    <p><strong>Password:</strong> 123456 (auto-generated)</p>
-                                    <p><strong>Email:</strong> username@mlm.com (auto-generated)</p>
-                                    <p><strong>Sponsor:</strong> Required - Select an existing user as sponsor</p>
-                                    <p><strong>Level Plan:</strong> User will buy level plan later from user list</p>
-                                    <p><strong>Process:</strong> Create user → Buy level plan → Join tree</p>
-                                </div>
+                               
                                 
-                                <form action="{{ route('add-user') }}" method="POST">
+                                <form action="{{ route('buy-slot') }}" method="POST">
                                     @csrf
                                     
                                     <div class="form-section">
@@ -288,12 +281,12 @@
                                                 <input type="text" class="form-control" id="username" name="username" value="{{ old('username') }}" required placeholder="Enter username">
                                             </div>
                                             <div class="col-md-6 mb-3">
-                                                <label for="sponsor_id" class="form-label">Sponsor *</label>
-                                                <select class="form-select" id="sponsor_id" name="sponsor_id">
-                                                    <option value="">Select a sponsor</option>
-                                                    @foreach($users as $user)
-                                                        <option value="{{ $user->id }}" {{ old('sponsor_id') == $user->id ? 'selected' : '' }}>
-                                                            {{ $user->id }}-{{ $user->username }}
+                                                <label for="level_id" class="form-label">Sponsor *</label>
+                                                <select class="form-select" id="level_id" name="level_id">
+                                                    <option value="">Select a plan</option>
+                                                    @foreach($plans as $p)
+                                                        <option value="{{ $p->id }}">
+                                                            {{ $p->id }}-{{ $p->name }}
                                                         </option>
                                                     @endforeach
                                                 </select>
@@ -306,13 +299,9 @@
                                             <i class="fas fa-arrow-left me-2"></i>
                                             Back to Dashboard
                                         </a>
-                                        <a href="{{ route('buy-slot-form') }}" class="btn btn-secondary">
-                                            <i class="fas fa-plus me-2"></i>
-                                            Buy slot
-                                        </a>
                                         <button type="submit" class="btn btn-primary">
                                             <i class="fas fa-save me-2"></i>
-                                            Add User
+                                            but slot
                                         </button>
                                     </div>
                                 </form>

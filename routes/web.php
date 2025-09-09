@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BuySlotTreeController;
 use App\Http\Controllers\TreeController;
 use App\Http\Controllers\UserTreeController;
 use App\Http\Controllers\DashboardController;
@@ -41,3 +42,10 @@ Route::get('/mlm-trees', [TreeController::class, 'getAllMLMTreeOwners'])->name('
 Route::get('/mlm-tree/{userId}', [TreeController::class, 'getMLMTreeInfo'])->name('mlm.tree.info');
 Route::get('/mlm-tree-stats', [TreeController::class, 'getTreeStats'])->name('mlm.tree.stats');
 
+
+Route::get('/buy-slot-form', function () {
+    $plans = \App\Models\LevelPlan::active()->ordered()->limit(3)->get(); // fetch all active level plans
+    return view('buy_slot', compact('plans'));
+})->name('buy-slot-form');
+
+Route::post('/buy-slot', [BuySlotTreeController::class, 'buySlot'])->name('buy-slot');
