@@ -7,7 +7,6 @@ use App\Models\User;
 use App\Models\ReferralRelationship;
 use App\Models\LevelPlan;
 use App\Models\UserSlot;
-use App\Services\IncomeService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -35,14 +34,6 @@ class BuySlotTreeController extends Controller
 
             // Get sponsor from user table
             $sponsor = User::find($user->sponsor_id);
-            
-            // If no sponsor found, use admin as default sponsor
-            if (!$sponsor) {
-                $sponsor = User::where('username', 'admin')->first();
-                if (!$sponsor) {
-                    throw new \Exception('No sponsor found and admin user not found');
-                }
-            }
 
             DB::transaction(function () use ($user, $levelPlan, $sponsor) {
                 // Step 1: Create user_slots entry with referral_relationship_id as null
@@ -191,10 +182,6 @@ class BuySlotTreeController extends Controller
             'referral_relationship_id' => $referralRelationship->id
         ]);
 
-        // Distribute income for this level plan purchase
-        $incomeService = new IncomeService();
-        $incomeService->distributeLevelPlanIncome($referralRelationship, $levelPlan->price, $levelPlan->id);
-
         Log::info("✅ FIRST LEVEL USER ADDED: {$user->username} (ID: {$user->id}) is root for level {$levelPlan->level_number}");
     }
 
@@ -283,10 +270,6 @@ class BuySlotTreeController extends Controller
         $userSlot->update([
             'referral_relationship_id' => $referralRelationship->id
         ]);
-
-        // Distribute income for this level plan purchase
-        $incomeService = new IncomeService();
-        $incomeService->distributeLevelPlanIncome($referralRelationship, $levelPlan->price, $levelPlan->id);
 
         // Calculate the level based on the upline's position in the tree
         $level = $this->calculateTreeLevel($placement['upline_id'], $user->id);
@@ -586,10 +569,6 @@ class BuySlotTreeController extends Controller
             $userSlot->update([
                 'referral_relationship_id' => $referralRelationship->id
             ]);
-
-            // Distribute income for this level plan purchase
-            $incomeService = new IncomeService();
-            $incomeService->distributeLevelPlanIncome($referralRelationship, $levelPlan->price, $levelPlan->id);
 
             // Calculate the level based on the upline's position in the tree
             $level = $this->calculateTreeLevel($placement['upline_id'], $newUser->id);

@@ -4,6 +4,7 @@ use App\Http\Controllers\BuySlotTreeController;
 use App\Http\Controllers\TreeController;
 use App\Http\Controllers\UserTreeController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\IncomeController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -52,3 +53,19 @@ Route::get('/buy-slot-form', function () {
 })->name('buy-slot-form');
 
 Route::post('/buy-slot', [BuySlotTreeController::class, 'buySlot'])->name('buy-slot');
+
+// Income Distribution Routes
+Route::middleware(['auth'])->group(function () {
+    Route::get('/income/dashboard', function () {
+        return view('income_dashboard');
+    })->name('income.dashboard');
+    Route::get('/income/distribution', [IncomeController::class, 'getUserIncomeDistribution'])->name('income.distribution');
+    Route::get('/income/received', [IncomeController::class, 'getUserIncomeReceived'])->name('income.received');
+    Route::post('/income/process-purchase', [IncomeController::class, 'processLevelPlanPurchase'])->name('income.process.purchase');
+});
+
+// Admin Income Routes
+Route::middleware(['auth'])->group(function () {
+    Route::get('/admin/income/summary', [IncomeController::class, 'getAdminIncomeSummary'])->name('admin.income.summary');
+    Route::get('/admin/income/stats', [IncomeController::class, 'getIncomeStats'])->name('admin.income.stats');
+});
