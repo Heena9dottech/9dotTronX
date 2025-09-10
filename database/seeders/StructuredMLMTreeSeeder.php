@@ -145,26 +145,50 @@ class StructuredMLMTreeSeeder extends Seeder
             $allUsers[] = $user;
 
             // Create only ONE referral relationship per user (not per level plan)
-            // First, determine upline structure
+            // First, determine upline structure using main_upline_id logic
             $uplineId = $user->sponsor_id;
-            $upline1 = $uplineId;
+            $mainUplineId = null;
+            $upline1 = null;
             $upline2 = null;
             $upline3 = null;
             $upline4 = null;
 
-            // Calculate upline chain
-            if ($uplineId && $uplineId != $sponsor->id) {
-                $upline1User = User::find($uplineId);
-                if ($upline1User && $upline1User->sponsor_id) {
-                    $upline2 = $upline1User->sponsor_id;
+            // Find the main_upline_id (referral_relationship id of the sponsor)
+            if ($uplineId) {
+                $sponsorRelationship = ReferralRelationship::where('user_id', $uplineId)->first();
+                if ($sponsorRelationship) {
+                    $mainUplineId = $sponsorRelationship->id;
+                }
+            }
+
+            // Calculate upline chain using main_upline_id
+            if ($mainUplineId) {
+                // UPLINE1: Find the referral_relationship with id = main_upline_id, get its user_id
+                $upline1Record = ReferralRelationship::find($mainUplineId);
+                if ($upline1Record) {
+                    $upline1 = $upline1Record->user_id;
                     
-                    $upline2User = User::find($upline2);
-                    if ($upline2User && $upline2User->sponsor_id) {
-                        $upline3 = $upline2User->sponsor_id;
-                        
-                        $upline3User = User::find($upline3);
-                        if ($upline3User && $upline3User->sponsor_id) {
-                            $upline4 = $upline3User->sponsor_id;
+                    // UPLINE2: Get main_upline_id from upline1 record, find that record, get its user_id
+                    if ($upline1Record->main_upline_id) {
+                        $upline2Record = ReferralRelationship::find($upline1Record->main_upline_id);
+                        if ($upline2Record) {
+                            $upline2 = $upline2Record->user_id;
+                            
+                            // UPLINE3: Get main_upline_id from upline2 record, find that record, get its user_id
+                            if ($upline2Record->main_upline_id) {
+                                $upline3Record = ReferralRelationship::find($upline2Record->main_upline_id);
+                                if ($upline3Record) {
+                                    $upline3 = $upline3Record->user_id;
+                                    
+                                    // UPLINE4: Get main_upline_id from upline3 record, find that record, get its user_id
+                                    if ($upline3Record->main_upline_id) {
+                                        $upline4Record = ReferralRelationship::find($upline3Record->main_upline_id);
+                                        if ($upline4Record) {
+                                            $upline4 = $upline4Record->user_id;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -198,7 +222,7 @@ class StructuredMLMTreeSeeder extends Seeder
                 'slot_price' => 0, // Will be updated when user buys slots
                 'level_id' => null, // Will be updated when user buys slots
                 'user_slots_id' => null, // Will be updated when user buys slots
-                'main_upline_id' => $uplineId
+                'main_upline_id' => $mainUplineId
             ]);
 
             // Assign 1-2 random level plans to each user (create user slots only)

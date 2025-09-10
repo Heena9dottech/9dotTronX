@@ -97,28 +97,39 @@ class ReferralRelationship extends Model
     public function calculateUplineColumns()
     {
         $currentUserId = $this->user_id;
-        $uplineId = $this->upline_id;
+        $mainUplineId = $this->main_upline_id;
         
-        $this->upline1 = $uplineId;
+        // Initialize all uplines as null
+        $this->upline1 = null;
         $this->upline2 = null;
         $this->upline3 = null;
         $this->upline4 = null;
 
-        if ($uplineId) {
-            //5
-            $upline1 = ReferralRelationship::where('user_id', $uplineId)->first();
-            if ($upline1) {
-                $this->upline2 = $upline1->upline_id;
+        if ($mainUplineId) {
+            // UPLINE1: Find the referral_relationship with id = main_upline_id, get its user_id
+            $upline1Record = ReferralRelationship::find($mainUplineId);
+            if ($upline1Record) {
+                $this->upline1 = $upline1Record->user_id;
                 
-                if ($upline1->upline_id) {
-                    $upline2 = ReferralRelationship::where('user_id', $upline1->upline_id)->first();
-                    if ($upline2) {
-                        $this->upline3 = $upline2->upline_id;
+                // UPLINE2: Get main_upline_id from upline1 record, find that record, get its user_id
+                if ($upline1Record->main_upline_id) {
+                    $upline2Record = ReferralRelationship::find($upline1Record->main_upline_id);
+                    if ($upline2Record) {
+                        $this->upline2 = $upline2Record->user_id;
                         
-                        if ($upline2->upline_id) {
-                            $upline3 = ReferralRelationship::where('user_id', $upline2->upline_id)->first();
-                            if ($upline3) {
-                                $this->upline4 = $upline3->upline_id;
+                        // UPLINE3: Get main_upline_id from upline2 record, find that record, get its user_id
+                        if ($upline2Record->main_upline_id) {
+                            $upline3Record = ReferralRelationship::find($upline2Record->main_upline_id);
+                            if ($upline3Record) {
+                                $this->upline3 = $upline3Record->user_id;
+                                
+                                // UPLINE4: Get main_upline_id from upline3 record, find that record, get its user_id
+                                if ($upline3Record->main_upline_id) {
+                                    $upline4Record = ReferralRelationship::find($upline3Record->main_upline_id);
+                                    if ($upline4Record) {
+                                        $this->upline4 = $upline4Record->user_id;
+                                    }
+                                }
                             }
                         }
                     }

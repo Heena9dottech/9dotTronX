@@ -1219,24 +1219,39 @@ class BuySlotTreeController extends Controller
     private function getTreeStructureByMainUplineId($mainUplineId, $maxLevels = 4)
     {
         $levelData = [];
-        $currentLevel = [$mainUplineId]; // Start with the main upline ID
+        
+        // Get the root user's user_id from the main_upline_id
+        $rootRelationship = ReferralRelationship::find($mainUplineId);
+        if (!$rootRelationship) {
+            // Fill all levels with empty data
+            for ($i = 1; $i <= $maxLevels; $i++) {
+                $levelData[$i] = [
+                    'count' => 0,
+                    'members' => []
+                ];
+            }
+            return $levelData;
+        }
+        
+        $currentLevel = [$rootRelationship->user_id]; // Start with the root user's user_id
         $level = 1;
 
         while ($level <= $maxLevels && !empty($currentLevel)) {
             $nextLevel = [];
             $levelMembers = [];
 
-            foreach ($currentLevel as $currentMainId) {
-                // Get direct children using main_upline_id
-                $children = ReferralRelationship::where('main_upline_id', $currentMainId)
+            foreach ($currentLevel as $currentUserId) {
+                // Get direct children using upline_id (actual parent-child relationship)
+                $children = ReferralRelationship::where('upline_id', $currentUserId)
+                    ->where('main_upline_id', $mainUplineId) // Ensure they belong to the same tree
                     ->orderBy('position', 'asc') // Left first, then right
                     ->get();
                 
                 // Debug: Log the query results
-                Log::info("Level {$level} - Looking for children of main_upline_id {$currentMainId}:", $children->toArray());
+                Log::info("Level {$level} - Looking for children of user_id {$currentUserId} (main_upline_id: {$mainUplineId}):", $children->toArray());
 
                 foreach ($children as $child) {
-                    $nextLevel[] = $child->id; // Use relationship ID for next level
+                    $nextLevel[] = $child->user_id; // Use user_id for next level
                     $levelMembers[] = [
                         'user_id' => $child->user_id,
                         'username' => $child->user_username,
