@@ -105,6 +105,7 @@ class ReferralRelationship extends Model
         $this->upline4 = null;
 
         if ($uplineId) {
+            //5
             $upline1 = ReferralRelationship::where('user_id', $uplineId)->first();
             if ($upline1) {
                 $this->upline2 = $upline1->upline_id;

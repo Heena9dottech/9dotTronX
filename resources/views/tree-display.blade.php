@@ -452,7 +452,7 @@
                     <div class="round-tabs-container mb-4">
                         <div class="round-tabs">
                             @foreach($availableRounds as $roundData)
-                            <a href="{{ route('tree.display', ['username' => $user->username, 'round' => $roundData['round']]) }}"
+                            <a href="{{ route('tree.display', ['id' => $user->id, 'round' => $roundData['round']]) }}"
                                 class="round-tab {{ $roundData['round'] == $round ? 'active' : '' }}">
                                 <i class="fas fa-layer-group me-2"></i>
                                 {{ $roundData['level_name'] }}

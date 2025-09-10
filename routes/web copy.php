@@ -13,6 +13,10 @@ Route::get('/', function () {
 
 Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
+// Tree display routes - moved to top to avoid conflicts
+Route::get('/tree-display/{id?}/{round?}', [BuySlotTreeController::class, 'displayTreeSimple'])->name('tree.display');
+// Route::get('/tree-display/{id}/{round}', [BuySlotTreeController::class, 'displayTree'])->name('tree.display.round');
+
 Route::get('/add-user-form', function () {
     $users = \App\Models\User::where('username', '!=', 'admin')
         ->orderBy('id', 'asc')
@@ -30,8 +34,16 @@ Route::post('/buy-level-plan', [TreeController::class, 'buyLevelPlan'])->name('b
 Route::get('/users', [UserTreeController::class, 'index'])->name('users.index');
 Route::get('/users/{username}/tree/{round?}', [UserTreeController::class, 'showTree'])->name('users.tree');
 
-// New tree display route using BuySlotTreeController
-Route::get('/tree-display/{id?}/{round?}', [BuySlotTreeController::class, 'displayTree'])->name('tree.display');
+// Test route to debug the issue
+Route::get('/test-tree/{id}', function($id) {
+    return "Test route working with ID: " . $id;
+})->name('test.tree');
+
+// Simple test route for tree-display
+Route::get('/simple-tree/{id}', function($id) {
+    return "Simple tree route working with ID: " . $id;
+})->name('simple.tree');
+
 Route::get('/tree-overview', [UserTreeController::class, 'overview'])->name('tree.overview');
 
 // API routes for tree data
