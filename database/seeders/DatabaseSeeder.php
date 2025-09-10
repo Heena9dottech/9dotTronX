@@ -16,10 +16,11 @@ class DatabaseSeeder extends Seeder
         // User::factory(10)->create();
 
         $this->call([
-            AdminUserSeeder::class,
+            // AdminUserSeeder::class,
             LevelPlanSeeder::class,
             // MLMUsersSeeder::class,
             // StructuredMLMTreeSeeder::class,
+            ComprehensiveMLMSeeder::class,
         ]);
     }
 }
