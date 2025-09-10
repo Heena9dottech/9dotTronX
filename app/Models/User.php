@@ -11,11 +11,12 @@ class User extends Model
 
     protected $fillable = [
         'name',
-        'username', 
-        'email', 
-        'password', 
-        'sponsor_id', 
-        'tree_round_count'
+        'username',
+        'email',
+        'password',
+        'sponsor_id',
+        'tree_round_count',
+        'wallet_address'
     ];
 
     protected $hidden = [

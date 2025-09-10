@@ -18,6 +18,8 @@ class DatabaseSeeder extends Seeder
         $this->call([
             AdminUserSeeder::class,
             LevelPlanSeeder::class,
+            // MLMUsersSeeder::class,
+            // StructuredMLMTreeSeeder::class,
         ]);
     }
 }
