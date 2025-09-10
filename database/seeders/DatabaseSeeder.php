@@ -20,7 +20,8 @@ class DatabaseSeeder extends Seeder
             LevelPlanSeeder::class,
             // MLMUsersSeeder::class,
             // StructuredMLMTreeSeeder::class,
-            ComprehensiveMLMSeeder::class,
+            // ComprehensiveMLMSeeder::class, // 500 users
+            ThousandUserMLMSeeder::class, // 1000 users
         ]);
     }
 }
