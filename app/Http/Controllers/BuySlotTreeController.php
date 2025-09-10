@@ -1228,6 +1228,7 @@ class BuySlotTreeController extends Controller
 
             foreach ($currentLevel as $currentMainId) {
                 // Get direct children using main_upline_id (relationship ID)
+                // This finds all children where main_upline_id = currentMainId
                 $children = ReferralRelationship::where('main_upline_id', $currentMainId)
                     ->orderBy('position', 'asc') // Left first, then right
                     ->get();

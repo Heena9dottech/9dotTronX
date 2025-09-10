@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 
 class ThousandUserMLMSeeder extends Seeder
 {
-   
+
     /**
      * Run the database seeds.
      */
@@ -25,11 +25,11 @@ class ThousandUserMLMSeeder extends Seeder
         $admin = User::firstOrCreate(
             ['username' => 'admin'],
             [
-                'name' => 'Admin User',
+                // 'name' => 'Admin User',
                 'email' => 'admin@example.com',
                 'password' => Hash::make('admin123'),
                 'sponsor_id' => null,
-                'tree_round_count' => 0,
+                // 'tree_round_count' => 0,
                 'wallet_address' => $this->generateTRC20Address()
             ]
         );
@@ -39,10 +39,10 @@ class ThousandUserMLMSeeder extends Seeder
             $this->command->info('No level plans found, creating them...');
             $this->call(LevelPlanSeeder::class);
         }
-        
+
         // Get level plans
         $levelPlans = LevelPlan::all()->keyBy('level_number');
-        
+
         if ($levelPlans->isEmpty()) {
             $this->command->error('No level plans available!');
             return;
@@ -65,16 +65,16 @@ class ThousandUserMLMSeeder extends Seeder
         $users = [];
         $userCounter = 1;
         $targetUsers = 1000; // 1000 users target
-        
+
         // Create first binary tree under admin (31 users max: 1+2+4+8+16)
         $this->command->info("Creating main binary tree under admin...");
         $mainTreeUsers = $this->createBinaryTree($admin, $levelPlans, $userCounter, $users, $targetUsers);
         $userCounter += count($mainTreeUsers);
-        
+
         // Create additional trees under existing users to reach 1000 total
         $treeNumber = 2;
         $maxTrees = 200; // Increased limit for 1000 users
-        
+
         while ($userCounter <= $targetUsers) {
             // Find a user with space for new referrals
             $nextTreeRoot = $this->findUserWithSpace($users, $admin);
@@ -82,15 +82,15 @@ class ThousandUserMLMSeeder extends Seeder
                 $this->command->warn("No more space for new trees, stopping at {$userCounter} users");
                 break;
             }
-            
+
             $this->command->info("Creating Tree #{$treeNumber} under user: {$nextTreeRoot->username}");
-            
+
             // Create a tree under this user (vary size based on remaining users needed)
             $remainingUsers = $targetUsers - $userCounter + 1;
             $treeUsers = $this->createAdaptiveTree($nextTreeRoot, $levelPlans, $userCounter, $users, $targetUsers, $remainingUsers);
             $userCounter += count($treeUsers);
             $treeNumber++;
-            
+
             // Safety check
             if ($treeNumber > $maxTrees) {
                 $this->command->warn("Reached maximum tree limit ({$maxTrees}), stopping at {$userCounter} users");
@@ -112,7 +112,7 @@ class ThousandUserMLMSeeder extends Seeder
     {
         $treeUsers = [];
         $userCounter = $startCounter;
-        
+
         // Level 1: 1 user under root (left side)
         if ($userCounter <= $targetUsers) {
             $level1Users = $this->createUsersForLevel($rootUser, $levelPlans, 1, 1, $userCounter, $allUsers, 'L');
@@ -125,14 +125,14 @@ class ThousandUserMLMSeeder extends Seeder
             $level2Users = [];
             foreach ($level1Users as $index => $level1User) {
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create left child
                 $leftUsers = $this->createUsersForLevel($level1User, $levelPlans, 2, 1, $userCounter, $allUsers, 'L');
                 $level2Users = array_merge($level2Users, $leftUsers);
                 $userCounter += 1;
-                
+
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create right child
                 $rightUsers = $this->createUsersForLevel($level1User, $levelPlans, 2, 1, $userCounter, $allUsers, 'R');
                 $level2Users = array_merge($level2Users, $rightUsers);
@@ -146,14 +146,14 @@ class ThousandUserMLMSeeder extends Seeder
             $level3Users = [];
             foreach ($level2Users as $level2User) {
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create left child
                 $leftUsers = $this->createUsersForLevel($level2User, $levelPlans, 3, 1, $userCounter, $allUsers, 'L');
                 $level3Users = array_merge($level3Users, $leftUsers);
                 $userCounter += 1;
-                
+
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create right child
                 $rightUsers = $this->createUsersForLevel($level2User, $levelPlans, 3, 1, $userCounter, $allUsers, 'R');
                 $level3Users = array_merge($level3Users, $rightUsers);
@@ -167,14 +167,14 @@ class ThousandUserMLMSeeder extends Seeder
             $level4Users = [];
             foreach ($level3Users as $level3User) {
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create left child
                 $leftUsers = $this->createUsersForLevel($level3User, $levelPlans, 4, 1, $userCounter, $allUsers, 'L');
                 $level4Users = array_merge($level4Users, $leftUsers);
                 $userCounter += 1;
-                
+
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create right child
                 $rightUsers = $this->createUsersForLevel($level3User, $levelPlans, 4, 1, $userCounter, $allUsers, 'R');
                 $level4Users = array_merge($level4Users, $rightUsers);
@@ -188,14 +188,14 @@ class ThousandUserMLMSeeder extends Seeder
             $level5Users = [];
             foreach ($level4Users as $level4User) {
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create left child (use level 4 for upline since we only have upline1-4)
                 $leftUsers = $this->createUsersForLevel($level4User, $levelPlans, 4, 1, $userCounter, $allUsers, 'L');
                 $level5Users = array_merge($level5Users, $leftUsers);
                 $userCounter += 1;
-                
+
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create right child
                 $rightUsers = $this->createUsersForLevel($level4User, $levelPlans, 4, 1, $userCounter, $allUsers, 'R');
                 $level5Users = array_merge($level5Users, $rightUsers);
@@ -214,7 +214,7 @@ class ThousandUserMLMSeeder extends Seeder
     {
         $treeUsers = [];
         $userCounter = $startCounter;
-        
+
         // Determine tree size based on remaining users needed
         if ($remainingUsers >= 15) {
             // Create a full binary tree (up to 15 users: 1+2+4+8)
@@ -222,10 +222,10 @@ class ThousandUserMLMSeeder extends Seeder
         } else {
             // Create a simple tree with remaining users
             $userCount = min($remainingUsers, 8);
-            
+
             for ($i = 0; $i < $userCount; $i++) {
                 if ($userCounter > $targetUsers) break;
-                
+
                 $position = $i % 2 == 0 ? 'L' : 'R';
                 $newUsers = $this->createUsersForLevel($rootUser, $levelPlans, 1, 1, $userCounter, $allUsers, $position);
                 $treeUsers = array_merge($treeUsers, $newUsers);
@@ -243,7 +243,7 @@ class ThousandUserMLMSeeder extends Seeder
     {
         $treeUsers = [];
         $userCounter = $startCounter;
-        
+
         // Level 1: 1 user under root
         if ($userCounter <= $targetUsers) {
             $level1Users = $this->createUsersForLevel($rootUser, $levelPlans, 1, 1, $userCounter, $allUsers, 'L');
@@ -256,14 +256,14 @@ class ThousandUserMLMSeeder extends Seeder
             $level2Users = [];
             foreach ($level1Users as $level1User) {
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create left child
                 $leftUsers = $this->createUsersForLevel($level1User, $levelPlans, 2, 1, $userCounter, $allUsers, 'L');
                 $level2Users = array_merge($level2Users, $leftUsers);
                 $userCounter += 1;
-                
+
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create right child
                 $rightUsers = $this->createUsersForLevel($level1User, $levelPlans, 2, 1, $userCounter, $allUsers, 'R');
                 $level2Users = array_merge($level2Users, $rightUsers);
@@ -277,14 +277,14 @@ class ThousandUserMLMSeeder extends Seeder
             $level3Users = [];
             foreach ($level2Users as $level2User) {
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create left child
                 $leftUsers = $this->createUsersForLevel($level2User, $levelPlans, 3, 1, $userCounter, $allUsers, 'L');
                 $level3Users = array_merge($level3Users, $leftUsers);
                 $userCounter += 1;
-                
+
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create right child
                 $rightUsers = $this->createUsersForLevel($level2User, $levelPlans, 3, 1, $userCounter, $allUsers, 'R');
                 $level3Users = array_merge($level3Users, $rightUsers);
@@ -298,14 +298,14 @@ class ThousandUserMLMSeeder extends Seeder
             $level4Users = [];
             foreach ($level3Users as $level3User) {
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create left child
                 $leftUsers = $this->createUsersForLevel($level3User, $levelPlans, 4, 1, $userCounter, $allUsers, 'L');
                 $level4Users = array_merge($level4Users, $leftUsers);
                 $userCounter += 1;
-                
+
                 if ($userCounter > $targetUsers) break;
-                
+
                 // Create right child
                 $rightUsers = $this->createUsersForLevel($level3User, $levelPlans, 4, 1, $userCounter, $allUsers, 'R');
                 $level4Users = array_merge($level4Users, $rightUsers);
@@ -360,11 +360,11 @@ class ThousandUserMLMSeeder extends Seeder
             // Last resort: return admin
             return $admin;
         }
-        
+
         // Return random candidate
         $randomKey = array_rand($candidates);
         $userId = $candidates[$randomKey];
-        
+
         return User::find($userId) ?: $admin;
     }
 
@@ -374,24 +374,24 @@ class ThousandUserMLMSeeder extends Seeder
     private function createUsersForLevel($sponsor, $levelPlans, $level, $count, $startCounter, &$allUsers, $position = 'L')
     {
         $levelUsers = [];
-        
+
         for ($i = 0; $i < $count; $i++) {
             $userNumber = $startCounter + $i;
-            
+
             // Determine sponsor: use the provided sponsor for all users
             $actualSponsorId = $sponsor->id;
-            
+
             // Create user (no email/password for regular users, only wallet address)
             $user = User::firstOrCreate(
                 ['username' => "user{$userNumber}"],
                 [
-                    'name' => "User {$userNumber}",
+                    // 'name' => "User {$userNumber}",
                     'sponsor_id' => $actualSponsorId,
-                    'tree_round_count' => 0,
+                    // 'tree_round_count' => 0,
                     'wallet_address' => $this->generateTRC20Address()
                 ]
             );
-            
+
             $levelUsers[] = $user;
             $allUsers[] = $user;
 
@@ -418,19 +418,19 @@ class ThousandUserMLMSeeder extends Seeder
                 $upline1Record = ReferralRelationship::find($mainUplineId);
                 if ($upline1Record) {
                     $upline1 = $upline1Record->user_id;
-                    
+
                     // UPLINE2: Get main_upline_id from upline1 record, find that record, get its user_id
                     if ($upline1Record->main_upline_id) {
                         $upline2Record = ReferralRelationship::find($upline1Record->main_upline_id);
                         if ($upline2Record) {
                             $upline2 = $upline2Record->user_id;
-                            
+
                             // UPLINE3: Get main_upline_id from upline2 record, find that record, get its user_id
                             if ($upline2Record->main_upline_id) {
                                 $upline3Record = ReferralRelationship::find($upline2Record->main_upline_id);
                                 if ($upline3Record) {
                                     $upline3 = $upline3Record->user_id;
-                                    
+
                                     // UPLINE4: Get main_upline_id from upline3 record, find that record, get its user_id
                                     if ($upline3Record->main_upline_id) {
                                         $upline4Record = ReferralRelationship::find($upline3Record->main_upline_id);
@@ -456,10 +456,10 @@ class ThousandUserMLMSeeder extends Seeder
             $userLevelCount = rand(1, 2);
             $availableLevels = $levelPlans->keys()->toArray();
             $maxLevels = min($userLevelCount, count($availableLevels));
-            
+
             if ($maxLevels > 0) {
                 $selectedLevels = array_rand($availableLevels, $maxLevels);
-                
+
                 if (!is_array($selectedLevels)) {
                     $selectedLevels = [$selectedLevels];
                 }
@@ -470,34 +470,35 @@ class ThousandUserMLMSeeder extends Seeder
             // Create user slots first
             $userSlots = [];
             $primaryUserSlot = null;
-            
+
             foreach ($selectedLevels as $levelNumber) {
                 $levelPlan = $levelPlans->get($levelNumber);
-                
+
                 if (!$levelPlan) {
                     continue; // Skip if level plan not found
                 }
-                
+
                 // Check if user already has a slot for this level
                 $existingSlot = UserSlot::where('user_id', $user->id)
                     ->where('level_plans_id', $levelPlan->id)
                     ->first();
-                
+
                 if ($existingSlot) {
                     continue; // Skip if slot already exists
                 }
-                
+
                 // Create user slot
                 $userSlot = UserSlot::create([
                     'user_id' => $user->id,
                     'username' => $user->username,
-                    'level_plans_id' => $levelPlan->id,
+                    'level_plans_id' => 1,
+                    // 'level_plans_id' => $levelPlan->id,
                     'referral_relationship_id' => null, // Will be updated after creating referral relationship
                     'tree_member_ids' => []
                 ]);
-                
+
                 $userSlots[] = $userSlot;
-                
+
                 // Set the first slot as primary for referral relationship
                 if (!$primaryUserSlot) {
                     $primaryUserSlot = $userSlot;
@@ -522,8 +523,10 @@ class ThousandUserMLMSeeder extends Seeder
                 'tree_round' => 1,
                 'is_spillover_slot' => false,
                 'level_number' => 1, // Default to level 1 for referral relationship
-                'slot_price' => $primaryUserSlot ? $levelPlans->get($primaryUserSlot->level_plans_id)->price : 0,
-                'level_id' => $primaryUserSlot ? $primaryUserSlot->level_plans_id : null,
+                // 'slot_price' => $primaryUserSlot ? $levelPlans->get($primaryUserSlot->level_plans_id)->price : 0,
+                 // 'level_id' => $primaryUserSlot ? $primaryUserSlot->level_plans_id : null,
+                'slot_price' => 200,
+                'level_id' => 1,
                 'user_slots_id' => $primaryUserSlot ? $primaryUserSlot->id : null, // Now properly set
                 'main_upline_id' => $mainUplineId
             ]);
@@ -531,12 +534,12 @@ class ThousandUserMLMSeeder extends Seeder
             // Update all user slots with the referral relationship ID
             foreach ($userSlots as $userSlot) {
                 $userSlot->update(['referral_relationship_id' => $referralRelationship->id]);
-                
+
                 // Create income distributions for this level plan
                 $this->createIncomeDistributions($referralRelationship, $levelPlans->get($userSlot->level_plans_id), $sponsor);
             }
         }
-        
+
         return $levelUsers;
     }
 
@@ -627,28 +630,28 @@ class ThousandUserMLMSeeder extends Seeder
     {
         foreach ($users as $user) {
             $userSlots = UserSlot::where('user_id', $user->id)->get();
-            
+
             foreach ($userSlots as $userSlot) {
                 $treeMembers = [];
-                
+
                 // Get all users in this user's downline for each level
                 for ($level = 1; $level <= 4; $level++) {
                     $levelMembers = [];
-                    
+
                     // Find users who have this user as upline at this level
                     $downlineUsers = ReferralRelationship::where("upline{$level}", $user->id)
                         ->with('user')
                         ->get();
-                    
+
                     foreach ($downlineUsers as $downline) {
                         if ($downline->user && $downline->user->id != $user->id) {
                             $levelMembers[] = $downline->user->username;
                         }
                     }
-                    
+
                     $treeMembers["level_{$level}"] = $levelMembers;
                 }
-                
+
                 $userSlot->update(['tree_member_ids' => $treeMembers]);
             }
         }
@@ -664,14 +667,14 @@ class ThousandUserMLMSeeder extends Seeder
         // This is a simplified generator for demo purposes
         $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
         $address = 'T';
-        
+
         for ($i = 0; $i < 33; $i++) {
             $address .= $characters[rand(0, strlen($characters) - 1)];
         }
-        
+
         return $address;
     }
 
-    
-   
+
+
 }
