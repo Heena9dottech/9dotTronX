@@ -452,31 +452,7 @@ class ComprehensiveMLMSeeder extends Seeder
                 $sponsorUsername = $sponsorUser ? $sponsorUser->username : 'admin';
             }
 
-            // Create ONE referral relationship per user
-            $referralRelationship = ReferralRelationship::create([
-                'user_id' => $user->id,
-                'user_username' => $user->username,
-                'sponsor_id' => $user->sponsor_id,
-                'sponsor_username' => $sponsorUsername,
-                'upline_id' => $uplineId,
-                'upline_username' => $uplineId ? User::find($uplineId)->username : 'admin',
-                'upline1' => $upline1,
-                'upline2' => $upline2,
-                'upline3' => $upline3,
-                'upline4' => $upline4,
-                'position' => $position, // Use provided position
-                'tree_owner_id' => $user->sponsor_id ?: $sponsor->id, // Use actual sponsor as tree owner
-                'tree_owner_username' => $sponsorUsername,
-                'tree_round' => 1,
-                'is_spillover_slot' => false,
-                'level_number' => 1, // Default to level 1 for referral relationship
-                'slot_price' => 0, // Will be updated when user buys slots
-                'level_id' => null, // Will be updated when user buys slots
-                'user_slots_id' => null, // Will be updated when user buys slots
-                'main_upline_id' => $mainUplineId
-            ]);
-
-            // Assign 1-2 random level plans to each user (create user slots only)
+            // Assign 1-2 random level plans to each user (create user slots first)
             $userLevelCount = rand(1, 2);
             $availableLevels = $levelPlans->keys()->toArray();
             $maxLevels = min($userLevelCount, count($availableLevels));
@@ -491,6 +467,10 @@ class ComprehensiveMLMSeeder extends Seeder
                 $selectedLevels = [1]; // Default to level 1 if no levels available
             }
 
+            // Create user slots first
+            $userSlots = [];
+            $primaryUserSlot = null;
+            
             foreach ($selectedLevels as $levelNumber) {
                 $levelPlan = $levelPlans->get($levelNumber);
                 
@@ -512,12 +492,48 @@ class ComprehensiveMLMSeeder extends Seeder
                     'user_id' => $user->id,
                     'username' => $user->username,
                     'level_plans_id' => $levelPlan->id,
-                    'referral_relationship_id' => $referralRelationship->id,
+                    'referral_relationship_id' => null, // Will be updated after creating referral relationship
                     'tree_member_ids' => []
                 ]);
+                
+                $userSlots[] = $userSlot;
+                
+                // Set the first slot as primary for referral relationship
+                if (!$primaryUserSlot) {
+                    $primaryUserSlot = $userSlot;
+                }
+            }
 
+            // Create ONE referral relationship per user with proper user_slots_id
+            $referralRelationship = ReferralRelationship::create([
+                'user_id' => $user->id,
+                'user_username' => $user->username,
+                'sponsor_id' => $user->sponsor_id,
+                'sponsor_username' => $sponsorUsername,
+                'upline_id' => $uplineId,
+                'upline_username' => $uplineId ? User::find($uplineId)->username : 'admin',
+                'upline1' => $upline1,
+                'upline2' => $upline2,
+                'upline3' => $upline3,
+                'upline4' => $upline4,
+                'position' => $position, // Use provided position
+                'tree_owner_id' => $user->sponsor_id ?: $sponsor->id, // Use actual sponsor as tree owner
+                'tree_owner_username' => $sponsorUsername,
+                'tree_round' => 1,
+                'is_spillover_slot' => false,
+                'level_number' => 1, // Default to level 1 for referral relationship
+                'slot_price' => $primaryUserSlot ? $levelPlans->get($primaryUserSlot->level_plans_id)->price : 0,
+                'level_id' => $primaryUserSlot ? $primaryUserSlot->level_plans_id : null,
+                'user_slots_id' => $primaryUserSlot ? $primaryUserSlot->id : null, // Now properly set
+                'main_upline_id' => $mainUplineId
+            ]);
+
+            // Update all user slots with the referral relationship ID
+            foreach ($userSlots as $userSlot) {
+                $userSlot->update(['referral_relationship_id' => $referralRelationship->id]);
+                
                 // Create income distributions for this level plan
-                $this->createIncomeDistributions($referralRelationship, $levelPlan, $sponsor);
+                $this->createIncomeDistributions($referralRelationship, $levelPlans->get($userSlot->level_plans_id), $sponsor);
             }
         }
         
