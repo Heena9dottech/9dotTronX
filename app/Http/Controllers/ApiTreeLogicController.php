@@ -7,6 +7,8 @@ use App\Models\ReferralRelationship;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+
 
 class ApiTreeLogicController extends Controller
 {
@@ -19,6 +21,35 @@ class ApiTreeLogicController extends Controller
      */
     public function getMemberCountByLevels(Request $request, $username)
     {
+
+        // $apiURL =  "https://api.trongrid.io/v1/accounts/TTQMAsEFLN9v3Z5CmAL2nspSzeTribjorp/transactions/trc20?only_to=true&limit=50";
+        // $apiURL =  "https://api.trongrid.io/v1/accounts/TKgbg9fbzQpSyuw3YLxvX8DTwatW4hivDD/transactions/trc20?only_to=true&limit=50";
+        // $apiURL = "https://api.trongrid.io/v1/accounts/TKgbg9fbzQpSyuw3YLxvX8DTwatW4hivDD/transactions/trc20?only_to=true&limit=50";
+
+        // $response = Http::retry(5, 1000, function ($exception, $request) {
+        //                     return $exception->getCode() === 429; // retry only on "Too Many Requests"
+        //                 })
+        //                 ->timeout(15)
+        //                 ->get($apiURL);
+    
+        // if ($response->failed()) {
+        //     return response()->json([
+        //         'success' => false,
+        //         'message' => 'API request failed',
+        //         'status' => $response->status(),
+        //     ], $response->status());
+        // }
+    
+        // $responseObj = $response->json();
+        // $data_count = isset($responseObj['data']) ? count($responseObj['data']) : 0;
+    
+        // return response()->json([
+        //     'success' => true,
+        //     'message' => 'done',
+        //     'responseObj' => $responseObj,
+        //     'data' => $data_count
+        // ]);
+
         try {
             // Validate username parameter
             if (empty($username)) {
@@ -40,10 +71,10 @@ class ApiTreeLogicController extends Controller
 
             // Calculate member count and names for 4 levels using left-right child logic
             $memberData = $this->calculateMemberDataByLeftRightSlots($user->id, 4);
-            
+
             // Calculate total members
             $totalMembers = array_sum(array_column($memberData, 'count'));
-            
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -133,14 +164,14 @@ class ApiTreeLogicController extends Controller
                 'count' => count($levelMembers),
                 'members' => $levelMembers
             ];
-            
+
             // Log for debugging - show if same user appears multiple times
             $usernames = array_column($levelMembers, 'username');
             $duplicateUsernames = array_diff_assoc($usernames, array_unique($usernames));
             if (!empty($duplicateUsernames)) {
                 Log::info("Level {$level} has duplicate usernames: " . implode(', ', array_unique($duplicateUsernames)));
             }
-            
+
             $currentLevel = $nextLevel;
             $level++;
         }
